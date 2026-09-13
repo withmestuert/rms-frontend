@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PageId, CriticalAction, Tenant, Admission, Room, Transaction, Invoice } from './types';
+import { PageId, CriticalAction, Tenant, Admission, Room, Transaction, Invoice, Property, User } from './types';
 import { apiService } from './services/apiService';
 import { AppShell } from './components/layout/AppShell';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -41,12 +41,14 @@ export function App() {
     const [rooms, setRooms] = useState<Room[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [properties, setProperties] = useState<Property[]>([]);
+    const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Load initial data from apiService
     const loadData = async () => {
         try {
-            const [actionsData, tenantsData, admissionsData, roomsData, txData, invoicesData] =
+            const [actionsData, tenantsData, admissionsData, roomsData, txData, invoicesData, propertiesData, usersData] =
                 await Promise.all([
                     apiService.getCriticalActions(),
                     apiService.getTenants(),
@@ -54,6 +56,8 @@ export function App() {
                     apiService.getRooms(),
                     apiService.getTransactions(),
                     apiService.getInvoices(),
+                    apiService.getProperties(),
+                    apiService.getUsers(),
                 ]);
 
             setCriticalActions(actionsData);
@@ -62,6 +66,8 @@ export function App() {
             setRooms(roomsData);
             setTransactions(txData);
             setInvoices(invoicesData);
+            setProperties(propertiesData);
+            setUsers(usersData);
         } catch (err) {
             console.error('Error loading RMS state:', err);
         } finally {
@@ -143,15 +149,105 @@ export function App() {
     };
 
 
+    const handleConfirmAdmission = async (admissionNumber: string) => {
+        await apiService.confirmAdmission(admissionNumber);
+        const [updatedAdmissions, updatedRooms, updatedTenants] = await Promise.all([
+            apiService.getAdmissions(),
+            apiService.getRooms(),
+            apiService.getTenants(),
+        ]);
+        setAdmissions(updatedAdmissions);
+        setRooms(updatedRooms);
+        setTenants(updatedTenants);
+    };
+
+    const handleCancelAdmission = async (admissionNumber: string) => {
+        await apiService.cancelAdmission(admissionNumber);
+        const [updatedAdmissions, updatedRooms, updatedTenants] = await Promise.all([
+            apiService.getAdmissions(),
+            apiService.getRooms(),
+            apiService.getTenants(),
+        ]);
+        setAdmissions(updatedAdmissions);
+        setRooms(updatedRooms);
+        setTenants(updatedTenants);
+    };
+
+    const handleDeleteTenant = async (uid: string) => {
+        await apiService.deleteTenant(uid);
+        const [updatedTenants, updatedRooms] = await Promise.all([
+            apiService.getTenants(),
+            apiService.getRooms(),
+        ]);
+        setTenants(updatedTenants);
+        setRooms(updatedRooms);
+    };
+
+    const handleVerifyTenantAdvance = async (uid: string, amount?: number) => {
+        await apiService.verifyTenantAdvance(uid, amount);
+        const [updatedTenants, updatedAdmissions, updatedRooms] = await Promise.all([
+            apiService.getTenants(),
+            apiService.getAdmissions(),
+            apiService.getRooms(),
+        ]);
+        setTenants(updatedTenants);
+        setAdmissions(updatedAdmissions);
+        setRooms(updatedRooms);
+    };
+
+    const handleUpdateTenant = async (uid: string, tenantData: Partial<Tenant>): Promise<Tenant> => {
+        const updated = await apiService.updateTenant(uid, tenantData);
+        setTenants(prev => prev.map(t => (t.id === uid ? updated : t)));
+        return updated;
+    };
+
+    const handleCreateProperty = async (data: Omit<Property, 'id'>): Promise<Property> => {
+        const created = await apiService.createProperty(data);
+        setProperties(prev => [...prev, created]);
+        return created;
+    };
+
+    const handleUpdateProperty = async (id: number, data: Partial<Property>): Promise<Property> => {
+        const updated = await apiService.updateProperty(id, data);
+        setProperties(prev => prev.map(p => (p.id === id ? updated : p)));
+        return updated;
+    };
+
+    const handleDeleteProperty = async (id: number): Promise<void> => {
+        await apiService.deleteProperty(id);
+        setProperties(prev => prev.filter(p => p.id !== id));
+    };
+
+    const handleCreateUser = async (data: Omit<User, 'id'>): Promise<User> => {
+        const created = await apiService.createUser(data);
+        setUsers(prev => [...prev, created]);
+        return created;
+    };
+
+    const handleUpdateUser = async (id: number, data: Partial<User>): Promise<User> => {
+        const updated = await apiService.updateUser(id, data);
+        setUsers(prev => prev.map(u => (u.id === id ? updated : u)));
+        return updated;
+    };
+
+    const handleDeleteUser = async (id: number): Promise<void> => {
+        await apiService.deleteUser(id);
+        setUsers(prev => prev.filter(u => u.id !== id));
+    };
+
     const handleDeleteRoom = async (
         roomNumber: string
     ) => {
-        await apiService.deleteRoom(roomNumber);
-
-        const updatedRooms =
-            await apiService.getRooms();
-
-        setRooms(updatedRooms);
+        try {
+            await apiService.deleteRoom(roomNumber);
+            const updatedRooms = await apiService.getRooms();
+            setRooms(updatedRooms);
+        } catch (error: any) {
+            console.error('Failed to delete room:', error);
+            const msg = error?.message || 'Failed to delete room';
+            alert(`Unable to delete Room ${roomNumber}:\n${msg}`);
+            throw error;
+        }
     };
 
     const handleAllocateRoom = async (roomNumber: string, tenantName: string) => {
@@ -190,12 +286,19 @@ export function App() {
         setTenants(prev => [createdTenant, ...prev]);
     };
 
-    const handleRecordPayment = async (invoiceId: string, paymentMode: string) => {
-        await apiService.recordPayment(invoiceId, paymentMode);
+    const handleRecordPayment = async (invoiceId: string, paymentMode: string, transactionRef?: string) => {
+        await apiService.recordPayment(invoiceId, paymentMode, transactionRef);
         const updatedInvoices = await apiService.getInvoices();
         const updatedTxs = await apiService.getTransactions();
         setInvoices(updatedInvoices);
         setTransactions(updatedTxs);
+    };
+
+    const handleGenerateCycleInvoices = async (monthYear: string, dueDate: string) => {
+        const result = await apiService.generateCycleInvoices(monthYear, dueDate);
+        const updatedInvoices = await apiService.getInvoices();
+        setInvoices(updatedInvoices);
+        return result;
     };
 
     const handleResetData = async () => {
@@ -248,6 +351,9 @@ export function App() {
                         <TenantsView
                             tenants={tenants}
                             onAddTenant={handleAddTenant}
+                            onUpdateTenant={handleUpdateTenant}
+                            onDeleteTenant={handleDeleteTenant}
+                            onVerifyAdvance={handleVerifyTenantAdvance}
                             onNavigate={handleNavigate}
                             onViewPaymentHistory={(tenant) => {
                                 setSelectedPaymentTenant(tenant);
@@ -281,6 +387,8 @@ export function App() {
                             admissions={admissions}
                             rooms={rooms}
                             onCreateAdmission={handleCreateAdmission}
+                            onConfirmAdmission={handleConfirmAdmission}
+                            onCancelAdmission={handleCancelAdmission}
                             onNavigate={handleNavigate}
                         />
                     }
@@ -306,6 +414,7 @@ export function App() {
                         <RentBillingView
                             invoices={invoices}
                             onRecordPayment={handleRecordPayment}
+                            onGenerateCycle={handleGenerateCycleInvoices}
                         />
                     }
                 />
@@ -333,7 +442,16 @@ export function App() {
                     path="/settings"
                     element={
                         <SettingsView
+                            properties={properties}
+                            users={users}
+                            onCreateProperty={handleCreateProperty}
+                            onUpdateProperty={handleUpdateProperty}
+                            onDeleteProperty={handleDeleteProperty}
+                            onCreateUser={handleCreateUser}
+                            onUpdateUser={handleUpdateUser}
+                            onDeleteUser={handleDeleteUser}
                             onResetData={handleResetData}
+                            onReloadData={loadData}
                         />
                     }
                 />

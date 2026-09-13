@@ -221,66 +221,15 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
 
     return (
         <div className="flex flex-col w-full gap-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs">
-                <div>
-                    <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded uppercase tracking-wider">
-                            Room Inventory
-                        </span>
-                        <span className="font-mono text-xs text-slate-500">
-                            {selectedFloor === 'all' ? 'All Floors' : `Floor ${selectedFloor}`} Active
-                        </span>
-                    </div>
-                    <h1 className="text-xl font-bold text-[#091426] tracking-tight font-display">
-                        Rooms &amp; Occupancy
-                    </h1>
-                    <p className="text-xs text-slate-500">
-                        Room rent, live occupant capacity, and terminal unit controllers.
-                    </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                    {/* Floor filter */}
-                    <div className="flex items-center bg-slate-100 p-1 rounded-lg">
-                        <button
-                            onClick={() => setSelectedFloor('all')}
-                            className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${selectedFloor === 'all'
-                                ? 'bg-white text-slate-900 shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                                }`}
-                        >
-                            All
-                        </button>
-                        {[1, 2, 3].map(floor => (
-                            <button
-                                key={floor}
-                                onClick={() => setSelectedFloor(floor)}
-                                className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${selectedFloor === floor
-                                    ? 'bg-white text-slate-900 shadow-xs'
-                                    : 'text-slate-600 hover:text-slate-900'
-                                    }`}
-                            >
-                                Floor {floor}
-                            </button>
-                        ))}
-                    </div>
-
-                    <button
-                        onClick={() => onNavigate('admissions')}
-                        className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
-                    >
-                        <UserPlus className="w-4 h-4" />
-                        <span>Enrol Tenant</span>
-                    </button>
-                    <button
-                        onClick={() => setShowCreateRoom(true)}
-                        className="h-9 px-4 bg-white hover:bg-slate-50 text-[#091426] border border-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
-                    >
-                        <Plus className="w-4 h-4" />
-                        <span>New Room</span>
-                    </button>
-                </div>
+            {/* Action Bar */}
+            <div className="flex items-center justify-end">
+                <button
+                    onClick={() => setShowCreateRoom(true)}
+                    className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                >
+                    <Plus className="w-4 h-4" />
+                    <span>New Room</span>
+                </button>
             </div>
 
             {/* 4 Minimal Metric Cards */}

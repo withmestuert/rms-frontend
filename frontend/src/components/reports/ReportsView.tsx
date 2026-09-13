@@ -194,42 +194,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
     return (
         <div className="flex flex-col w-full gap-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs">
-                <div>
-                    <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded uppercase tracking-wider">
-                            Analytics Console
-                        </span>
-                        <span className="font-mono text-xs text-slate-500">Property &amp; Demographic Insights</span>
-                    </div>
-                    <h1 className="text-xl font-bold text-[#091426] tracking-tight font-display">
-                        Reports &amp; Resident Analytics
-                    </h1>
-                    <p className="text-xs text-slate-500">
-                        Property-wise rent collected, monthly enrolment graphs, working vs other comparisons, and hometown demographics.
-                    </p>
-                </div>
+            {/* Action Bar */}
+            <div className="flex items-center justify-end gap-2">
+                <select
+                    value={selectedPeriod}
+                    onChange={e => setSelectedPeriod(e.target.value)}
+                    className="h-9 px-3 bg-white border border-slate-200/80 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none shadow-xs"
+                >
+                    <option value="2024">Calendar Year 2024</option>
+                    <option value="Q3">Q3 2024</option>
+                    <option value="Q4">Q4 2024 (Active)</option>
+                </select>
 
-                <div className="flex items-center gap-2">
-                    <select
-                        value={selectedPeriod}
-                        onChange={e => setSelectedPeriod(e.target.value)}
-                        className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none"
-                    >
-                        <option value="2024">Calendar Year 2024</option>
-                        <option value="Q3">Q3 2024</option>
-                        <option value="Q4">Q4 2024 (Active)</option>
-                    </select>
-
-                    <button
-                        onClick={() => alert('Exporting complete property and demographic reports.')}
-                        className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
-                    >
-                        <Download className="w-4 h-4" />
-                        <span>Export Data</span>
-                    </button>
-                </div>
+                <button
+                    onClick={() => alert('Exporting complete property and demographic reports.')}
+                    className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                >
+                    <Download className="w-4 h-4" />
+                    <span>Export Data</span>
+                </button>
             </div>
 
             {/* Top 4 KPI Metrics */}

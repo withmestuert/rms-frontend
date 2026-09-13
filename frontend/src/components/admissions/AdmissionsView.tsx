@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     UserPlus,
     DoorOpen,
@@ -10,6 +10,9 @@ import {
     MapPin,
     Briefcase,
     ShieldCheck,
+    X,
+    CreditCard,
+    Receipt,
 } from 'lucide-react';
 import { Admission, Room, PageId } from '../../types';
 import { formatAadharDisplay, cleanAadharForDB } from '../../utils/formatters';
@@ -20,6 +23,8 @@ interface AdmissionsViewProps {
     onCreateAdmission: (
         admissionData: Omit<Admission, 'id' | 'allocatedAt'>
     ) => Promise<void>;
+    onConfirmAdmission?: (admissionNumber: string) => Promise<void>;
+    onCancelAdmission?: (admissionNumber: string) => Promise<void>;
     onNavigate: (page: PageId) => void;
 }
 
@@ -27,6 +32,8 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
     admissions,
     rooms,
     onCreateAdmission,
+    onConfirmAdmission,
+    onCancelAdmission,
     onNavigate,
 }) => {
     // Available rooms and rooms with active vacate notices
@@ -53,6 +60,56 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
         initialRoom ? initialRoom.rent : 8000
     );
     const [isSuccess, setIsSuccess] = useState(false);
+    const [isCapacityModalOpen, setIsCapacityModalOpen] = useState(false);
+
+    // Floor-wise grouped rooms for the capacity modal
+    const floorGroups = useMemo(() => {
+        const groups: { [key: string]: Room[] } = {};
+        rooms.forEach(r => {
+            const floorKey = r.floor !== undefined && r.floor !== null ? `Floor ${r.floor}` : 'Ground Floor';
+            if (!groups[floorKey]) {
+                groups[floorKey] = [];
+            }
+            groups[floorKey].push(r);
+        });
+
+        return Object.entries(groups).sort(([a], [b]) => {
+            return a.localeCompare(b, undefined, { numeric: true });
+        });
+    }, [rooms]);
+
+    // Aggregate statistics
+    const totalCapacity = useMemo(() => rooms.reduce((acc, r) => acc + (r.capacity || 0), 0), [rooms]);
+    const totalOccupied = useMemo(() => rooms.reduce((acc, r) => acc + (r.occupied || 0), 0), [rooms]);
+    const totalAvailable = Math.max(0, totalCapacity - totalOccupied);
+
+    // Advance verification modal state
+    const [selectedAdmissionForVerify, setSelectedAdmissionForVerify] = useState<Admission | null>(null);
+    const [verifyAmount, setVerifyAmount] = useState<number>(8000);
+    const [verifyPaymentMode, setVerifyPaymentMode] = useState<string>('UPI');
+    const [verifyReference, setVerifyReference] = useState<string>('');
+    const [isVerifying, setIsVerifying] = useState<boolean>(false);
+
+    const openVerifyModal = (adm: Admission) => {
+        setSelectedAdmissionForVerify(adm);
+        setVerifyAmount(adm.monthlyRent || 8000);
+        setVerifyPaymentMode('UPI');
+        setVerifyReference('');
+    };
+
+    const handleConfirmVerify = async () => {
+        if (!selectedAdmissionForVerify || !onConfirmAdmission) return;
+        setIsVerifying(true);
+        try {
+            await onConfirmAdmission(selectedAdmissionForVerify.id);
+            setSelectedAdmissionForVerify(null);
+        } catch (err) {
+            console.error('Failed to verify admission:', err);
+            alert('Failed to verify advance payment. Please check backend.');
+        } finally {
+            setIsVerifying(false);
+        }
+    };
 
     // When room selection changes, update the rent default
     const handleRoomChange = (roomNum: string) => {
@@ -112,26 +169,12 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
 
     return (
         <div className="flex flex-col w-full gap-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs">
-                <div>
-                    <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded uppercase tracking-wider">
-                            Enrolment Portal
-                        </span>
-                        <span className="font-mono text-xs text-slate-500">Instant Resident Onboarding</span>
-                    </div>
-                    <h1 className="text-xl font-bold text-[#091426] tracking-tight font-display">
-                        Tenant Enrolment &amp; Room Assignment
-                    </h1>
-                    <p className="text-xs text-slate-500">
-                        Enrol new tenants directly into available rooms or scheduled vacate slots with automated payment verification.
-                    </p>
-                </div>
-
+            {/* Action Bar */}
+            <div className="flex items-center justify-end">
                 <button
-                    onClick={() => onNavigate('rooms')}
-                    className="h-9 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors self-start md:self-auto"
+                    type="button"
+                    onClick={() => setIsCapacityModalOpen(true)}
+                    className="h-9 px-4 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
                 >
                     <DoorOpen className="w-4 h-4 text-slate-600" />
                     <span>Check Room Capacity</span>
@@ -468,6 +511,44 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                 </div>
             </div>
 
+            {/* Pending Advance Verification Banner */}
+            {(() => {
+                const pendingAdmissions = admissions.filter(a => a.status === 'pending');
+                if (pendingAdmissions.length === 0) return null;
+                return (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col gap-3">
+                        <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span className="text-sm font-bold text-amber-900">
+                                {pendingAdmissions.length} Admission{pendingAdmissions.length > 1 ? 's' : ''} Awaiting Advance Payment Verification
+                            </span>
+                        </div>
+                        <p className="text-xs text-amber-700">
+                            The following admissions are pending advance payment verification. Click <strong>Confirm</strong> in the table below to verify advance payment and activate the tenant.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            {pendingAdmissions.slice(0, 4).map(adm => (
+                                <button
+                                    key={adm.id}
+                                    type="button"
+                                    onClick={() => openVerifyModal(adm)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 text-xs font-semibold rounded-full border border-amber-200 transition-colors cursor-pointer"
+                                >
+                                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse inline-block" />
+                                    <span>{adm.residentName} — Room {adm.roomNumber}</span>
+                                    <span className="text-[10px] bg-amber-600 text-white px-1.5 py-0.2 rounded font-bold">Verify</span>
+                                </button>
+                            ))}
+                            {pendingAdmissions.length > 4 && (
+                                <span className="text-xs text-amber-600 font-medium self-center">
+                                    +{pendingAdmissions.length - 4} more
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Recent Admissions Records */}
             <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col gap-3">
                 <h2 className="text-sm font-bold text-[#091426]">
@@ -485,6 +566,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                 <th className="py-2.5 px-3 font-mono text-right">Rent</th>
                                 <th className="py-2.5 px-3">Move-In Date</th>
                                 <th className="py-2.5 px-3">Payment Status</th>
+                                <th className="py-2.5 px-3 text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs">
@@ -523,10 +605,49 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                         {adm.moveInDate}
                                     </td>
                                     <td className="py-3 px-3">
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                            <span>Auto-Verified</span>
-                                        </span>
+                                        {adm.status === 'confirmed' ? (
+                                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                                <span>PAID (Active)</span>
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                                <span>PENDING</span>
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="py-3 px-3 text-right">
+                                        {adm.status !== 'confirmed' ? (
+                                            <div className="inline-flex items-center gap-1.5 justify-end">
+                                                {onConfirmAdmission && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openVerifyModal(adm)}
+                                                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold transition-colors flex items-center gap-1 shadow-2xs"
+                                                        title="Verify advance payment and activate tenant"
+                                                    >
+                                                        <ShieldCheck className="w-3 h-3" />
+                                                        <span>Verify</span>
+                                                    </button>
+                                                )}
+                                                {onCancelAdmission && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (window.confirm(`Cancel pending admission for ${adm.residentName}?`)) {
+                                                                onCancelAdmission(adm.id);
+                                                            }
+                                                        }}
+                                                        className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded text-[11px] font-semibold transition-colors"
+                                                        title="Cancel Pending Admission"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span className="text-[11px] text-slate-400 font-mono">Enrolled</span>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
@@ -534,6 +655,332 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                     </table>
                 </div>
             </div>
+
+            {/* Advance Payment Verification Modal */}
+            {selectedAdmissionForVerify && (
+                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                        {/* Modal Header */}
+                        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                    <ShieldCheck className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900">Verify Advance Payment</h3>
+                                    <p className="text-[11px] text-slate-500">Record advance receipt to activate tenant</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSelectedAdmissionForVerify(null)}
+                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-5 flex flex-col gap-4">
+                            {/* Resident Details Card */}
+                            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/60 flex flex-col gap-1.5 text-xs">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-500">Resident:</span>
+                                    <span className="font-bold text-slate-900">{selectedAdmissionForVerify.residentName}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-500">Room Assigned:</span>
+                                    <span className="font-semibold text-slate-800">Room {selectedAdmissionForVerify.roomNumber}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-500">Admission No:</span>
+                                    <span className="font-mono text-slate-600">{selectedAdmissionForVerify.id}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-slate-500">Move-in Date:</span>
+                                    <span className="font-mono text-slate-600">{selectedAdmissionForVerify.moveInDate}</span>
+                                </div>
+                            </div>
+
+                            {/* Advance Amount Input */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-slate-700">Advance Amount Received (₹)</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-2 text-xs font-bold text-slate-400">₹</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={verifyAmount}
+                                        onChange={e => setVerifyAmount(Number(e.target.value))}
+                                        className="w-full h-9 pl-7 pr-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Payment Mode Selector */}
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-slate-700">Payment Mode</label>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {['UPI', 'Cash', 'Bank Transfer', 'Card'].map(mode => (
+                                        <button
+                                            key={mode}
+                                            type="button"
+                                            onClick={() => setVerifyPaymentMode(mode)}
+                                            className={`py-2 px-1 text-center rounded-lg text-xs font-semibold border transition-all ${
+                                                verifyPaymentMode === mode
+                                                    ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-xs'
+                                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            {mode}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Reference Number Input */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-slate-700">Transaction Ref / UTR / Receipt No. (Optional)</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. UPI-2024-984128, Cash Receipt #42"
+                                    value={verifyReference}
+                                    onChange={e => setVerifyReference(e.target.value)}
+                                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-5 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
+                            <button
+                                type="button"
+                                onClick={() => setSelectedAdmissionForVerify(null)}
+                                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isVerifying}
+                                onClick={handleConfirmVerify}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                            >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>{isVerifying ? 'Verifying...' : 'Confirm & Activate Tenant'}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Floor-wise Room Capacity & Occupancy Modal */}
+            {isCapacityModalOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full max-h-[88vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+                        {/* Modal Header */}
+                        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+                                    <DoorOpen className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-slate-900">
+                                        Room Capacity &amp; Availability
+                                    </h3>
+                                    <p className="text-xs text-slate-500">
+                                        Floor-wise occupancy breakdown. Click &quot;Select Room&quot; to assign a room for this admission.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsCapacityModalOpen(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Metric summary ribbon */}
+                        <div className="px-6 py-3 bg-slate-100/70 border-b border-slate-200/70 grid grid-cols-4 gap-2 text-center text-xs">
+                            <div className="bg-white py-1.5 px-3 rounded-lg border border-slate-200/60">
+                                <span className="text-slate-500 block text-[11px]">Total Rooms</span>
+                                <span className="font-bold text-slate-800 text-sm">{rooms.length}</span>
+                            </div>
+                            <div className="bg-white py-1.5 px-3 rounded-lg border border-slate-200/60">
+                                <span className="text-slate-500 block text-[11px]">Total Capacity</span>
+                                <span className="font-bold text-slate-800 text-sm">{totalCapacity} Beds</span>
+                            </div>
+                            <div className="bg-white py-1.5 px-3 rounded-lg border border-slate-200/60">
+                                <span className="text-slate-500 block text-[11px]">Occupied</span>
+                                <span className="font-bold text-blue-600 text-sm">{totalOccupied} Beds</span>
+                            </div>
+                            <div className="bg-white py-1.5 px-3 rounded-lg border border-slate-200/60">
+                                <span className="text-slate-500 block text-[11px]">Available</span>
+                                <span className="font-bold text-emerald-600 text-sm">{totalAvailable} Beds</span>
+                            </div>
+                        </div>
+
+                        {/* Modal Body - Floor-wise Rooms */}
+                        <div className="p-6 overflow-y-auto flex flex-col gap-6 max-h-[60vh]">
+                            {floorGroups.length === 0 ? (
+                                <div className="text-center py-12 text-slate-400 text-xs">
+                                    No rooms found in the inventory.
+                                </div>
+                            ) : (
+                                floorGroups.map(([floorName, floorRooms]) => {
+                                    const floorAvailable = floorRooms.reduce(
+                                        (acc, r) => acc + Math.max(0, r.capacity - r.occupied),
+                                        0
+                                    );
+                                    return (
+                                        <div key={floorName} className="flex flex-col gap-3">
+                                            {/* Floor Header */}
+                                            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wide">
+                                                        {floorName}
+                                                    </span>
+                                                    <span className="text-[11px] text-slate-500 font-medium">
+                                                        ({floorRooms.length} {floorRooms.length === 1 ? 'room' : 'rooms'})
+                                                    </span>
+                                                </div>
+                                                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                                                    floorAvailable > 0
+                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                        : 'bg-slate-100 text-slate-600'
+                                                }`}>
+                                                    {floorAvailable} beds available
+                                                </span>
+                                            </div>
+
+                                            {/* Room Cards Grid */}
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                                {floorRooms.map(room => {
+                                                    const isFull = room.occupied >= room.capacity;
+                                                    const isSelected = selectedRoomNumber === room.roomNumber;
+                                                    const hasVacancy = room.occupied < room.capacity;
+                                                    const hasNotice = room.status === 'vacate_notice';
+                                                    const occupancyPct = Math.min(
+                                                        100,
+                                                        Math.round(((room.occupied || 0) / (room.capacity || 1)) * 100)
+                                                    );
+
+                                                    return (
+                                                        <div
+                                                            key={room.id || room.roomNumber}
+                                                            className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between gap-3 ${
+                                                                isSelected
+                                                                    ? 'border-blue-500 bg-blue-50/40 ring-2 ring-blue-500/20'
+                                                                    : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
+                                                            }`}
+                                                        >
+                                                            {/* Card Top */}
+                                                            <div>
+                                                                <div className="flex items-center justify-between gap-2 mb-1.5">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <span className="text-sm font-bold text-slate-900">
+                                                                            Room {room.roomNumber}
+                                                                        </span>
+                                                                        <span className="text-[10px] uppercase font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                                                            {room.type}
+                                                                        </span>
+                                                                    </div>
+                                                                    <span
+                                                                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                                                            hasNotice
+                                                                                ? 'bg-amber-100 text-amber-800'
+                                                                                : isFull
+                                                                                ? 'bg-rose-100 text-rose-800'
+                                                                                : 'bg-emerald-100 text-emerald-800'
+                                                                        }`}
+                                                                    >
+                                                                        {hasNotice
+                                                                            ? 'Notice'
+                                                                            : isFull
+                                                                            ? 'Full'
+                                                                            : 'Available'}
+                                                                    </span>
+                                                                </div>
+
+                                                                {/* Occupancy bar */}
+                                                                <div className="flex flex-col gap-1 mt-2">
+                                                                    <div className="flex justify-between text-[11px]">
+                                                                        <span className="text-slate-500 font-medium">Occupancy</span>
+                                                                        <span className="font-mono font-semibold text-slate-800">
+                                                                            {room.occupied} / {room.capacity}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                        <div
+                                                                            className={`h-full rounded-full transition-all ${
+                                                                                isFull
+                                                                                    ? 'bg-rose-500'
+                                                                                    : hasNotice
+                                                                                    ? 'bg-amber-500'
+                                                                                    : 'bg-emerald-500'
+                                                                            }`}
+                                                                            style={{ width: `${occupancyPct}%` }}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="mt-2 text-xs font-semibold text-slate-700">
+                                                                    ₹{room.rent?.toLocaleString('en-IN') ?? 8000}
+                                                                    <span className="text-[10px] text-slate-400 font-normal"> / month</span>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Select Button */}
+                                                            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                                                                {isSelected ? (
+                                                                    <span className="text-xs font-bold text-blue-600 flex items-center gap-1">
+                                                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                                                        Selected
+                                                                    </span>
+                                                                ) : hasVacancy || hasNotice ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            handleRoomChange(room.roomNumber);
+                                                                            setIsCapacityModalOpen(false);
+                                                                        }}
+                                                                        className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1"
+                                                                    >
+                                                                        <span>Select Room</span>
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="text-xs text-slate-400 font-medium w-full text-center py-1">
+                                                                        No Vacancy
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/70">
+                            <span className="text-xs text-slate-500">
+                                Selected Room: <strong className="text-slate-800">{selectedRoomNumber || 'None'}</strong>
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setIsCapacityModalOpen(false)}
+                                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold rounded-lg transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { apiService } from '../../services/apiService';
+import { Property, User } from '../../types';
 
 import {
     Building2,
@@ -43,9 +45,11 @@ export const AppShell: React.FC<AppShellProps> = ({
     const [isDesignSpecOpen, setIsDesignSpecOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
-    const [selectedProperty, setSelectedProperty] = useState('Greenwood PG - Phase 1');
+    const [selectedProperty, setSelectedProperty] = useState('');
     const [isPropertyDropdownOpen, setIsPropertyDropdownOpen] = useState(false);
     const [showNotificationToast, setShowNotificationToast] = useState(false);
+    const [properties, setProperties] = useState<Property[]>([]);
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
 
     // Sidebar Collapse (Desktop) & Mobile Drawer Overlay State
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -95,12 +99,26 @@ export const AppShell: React.FC<AppShellProps> = ({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    const properties = [
-        'Greenwood PG - Phase 1',
-        'Greenwood Residency - Block A (Boys)',
-        'Greenwood Residency - Block B (Girls)',
-        'Skyview Heights PG - Wing 1',
-    ];
+    // Load properties and current user from backend on mount
+    useEffect(() => {
+        apiService.getProperties()
+            .then(props => {
+                setProperties(props);
+                if (props.length > 0) {
+                    setSelectedProperty(prev => prev || props[0].name);
+                }
+            })
+            .catch(() => setProperties([]));
+
+        apiService.getUsers()
+            .then(users => {
+                const active = users.find(u => u.role === 'ADMIN' || u.role === 'PROPERTY_MANAGER') ?? users[0] ?? null;
+                setCurrentUser(active);
+            })
+            .catch(() => setCurrentUser(null));
+    }, []);
+
+    const propertyNames = properties.map(p => p.name);
 
     /*
      * Breadcrumb title is now derived from the current URL.
@@ -264,9 +282,15 @@ export const AppShell: React.FC<AppShellProps> = ({
 
                                     <Building2 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
 
-                                    <span className="text-xs font-semibold text-slate-800 truncate">
-                                        {selectedProperty}
-                                    </span>
+                                    {selectedProperty ? (
+                                        <span className="text-xs font-semibold text-slate-800 truncate">
+                                            {selectedProperty}
+                                        </span>
+                                    ) : (
+                                        <span className="text-xs text-slate-400 italic truncate">
+                                            No PG connected
+                                        </span>
+                                    )}
                                 </div>
 
                                 <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -275,7 +299,11 @@ export const AppShell: React.FC<AppShellProps> = ({
                             {isPropertyDropdownOpen && (
                                 <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
 
-                                    {properties.map(p => (
+                                    {propertyNames.length === 0 ? (
+                                        <div className="px-3 py-3 text-xs text-slate-400 italic text-center">
+                                            No PG connected — check backend
+                                        </div>
+                                    ) : propertyNames.map(p => (
                                         <button
                                             key={p}
                                             onClick={() => {
@@ -433,7 +461,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                                         : 'inline'
                                 }
                             >
-                                Rooms &amp; Beds
+                                Rooms
                             </span>
                         </NavLink>
 
@@ -603,9 +631,11 @@ export const AppShell: React.FC<AppShellProps> = ({
 
                             <div
                                 className="w-8 h-8 rounded-full bg-[#091426] text-white flex items-center justify-center font-bold text-xs shrink-0 cursor-pointer"
-                                title="Rajesh Sharma â€¢ Admin"
+                                title={currentUser ? `${currentUser.fullName} • ${currentUser.role.replace(/_/g, ' ')}` : 'Project RMS'}
                             >
-                                RS
+                                {currentUser
+                                    ? currentUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                    : 'RMS'}
                             </div>
 
                             <div
@@ -615,11 +645,13 @@ export const AppShell: React.FC<AppShellProps> = ({
                                     }`}
                             >
                                 <span className="text-xs font-semibold text-slate-900 truncate">
-                                    Rajesh Sharma
+                                    {currentUser?.fullName ?? 'Project RMS'}
                                 </span>
 
                                 <span className="text-[11px] text-slate-500 truncate">
-                                    Property Manager â€¢ Admin
+                                    {currentUser
+                                        ? currentUser.role.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                                        : 'Property Operations'}
                                 </span>
                             </div>
                         </div>
@@ -792,11 +824,11 @@ export const AppShell: React.FC<AppShellProps> = ({
                             <Plus className="w-4 h-4" />
 
                             <span className="hidden sm:inline">
-                                Quick Admission
+                                New Admission
                             </span>
 
                             <span className="sm:hidden">
-                                Enrol
+                                Admission
                             </span>
                         </button>
 

@@ -11,8 +11,8 @@ export type PageId =
 
 export interface Room {
     roomNumber: string;
-    floor: string;
-    roomType: string;
+    floor: string | number;
+    roomType?: string;
     rent: number;
     capacity: number; // Can be 1, 2, 3, 4, 5, 6, etc.
     occupied: number;
@@ -88,6 +88,31 @@ export interface Invoice {
     status: 'paid' | 'pending' | 'overdue';
     paidOn?: string;
     paymentMode?: string;
+}
+
+export interface Property {
+    id: number;
+    name: string;
+    code: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    propertyType?: string;
+    totalFloors?: number;
+    totalRooms?: number;
+    contactNumber?: string;
+    contactEmail?: string;
+    status: string;
+}
+
+export interface User {
+    id: number;
+    username: string;
+    email: string;
+    fullName: string;
+    role: string; // ADMIN | PROPERTY_MANAGER | STAFF
+    phone?: string;
+    status: string;
 }
 
 export interface TenantPaymentRecord {

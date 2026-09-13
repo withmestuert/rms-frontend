@@ -32,26 +32,15 @@ export const LedgerView: React.FC<LedgerViewProps> = ({ transactions }) => {
 
     return (
         <div className="flex flex-col w-full gap-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs">
-                <div>
-                    <h1 className="text-xl font-bold text-[#091426] tracking-tight font-display">
-                        Operational Financial Ledger
-                    </h1>
-                    <p className="text-xs text-slate-500">
-                        Authoritative double-entry transaction journal, escrow deposits, and vendor disbursements.
-                    </p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <div className="bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl flex flex-col items-end">
-                        <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-                            Settled Bank Balance
-                        </span>
-                        <span className="font-mono text-xl font-bold text-slate-900 font-display">
-                            ₹{currentBalance.toLocaleString('en-IN')}
-                        </span>
-                    </div>
+            {/* Action Bar */}
+            <div className="flex items-center justify-end">
+                <div className="bg-white border border-slate-200/80 shadow-xs px-4 py-2 rounded-xl flex flex-col items-end">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                        Settled Bank Balance
+                    </span>
+                    <span className="font-mono text-xl font-bold text-slate-900 font-display">
+                        ₹{currentBalance.toLocaleString('en-IN')}
+                    </span>
                 </div>
             </div>
 

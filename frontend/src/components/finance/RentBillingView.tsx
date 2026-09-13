@@ -14,22 +14,33 @@ import {
     TrendingUp,
     Banknote,
     Smartphone,
+    X,
 } from 'lucide-react';
 import { Invoice } from '../../types';
 
 interface RentBillingViewProps {
     invoices: Invoice[];
-    onRecordPayment: (invoiceId: string, paymentMode: string) => void;
+    onRecordPayment: (invoiceId: string, paymentMode: string, transactionRef?: string) => Promise<void> | void;
+    onGenerateCycle?: (monthYear: string, dueDate: string) => Promise<any>;
 }
 
 export const RentBillingView: React.FC<RentBillingViewProps> = ({
     invoices,
     onRecordPayment,
+    onGenerateCycle,
 }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'upi' | 'cash' | 'pending'>('all');
     const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
     const [selectedPaymentMode, setSelectedPaymentMode] = useState<'UPI' | 'Cash' | 'NEFT' | 'Credit Card'>('UPI');
+    const [paymentReference, setPaymentReference] = useState('');
+
+    // Cycle Generation Modal State
+    const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
+    const [cycleMonthYear, setCycleMonthYear] = useState('November 2024');
+    const [cycleDueDate, setCycleDueDate] = useState('2024-11-05');
+    const [isGeneratingCycle, setIsGeneratingCycle] = useState(false);
+    const [cycleFeedback, setCycleFeedback] = useState<string | null>(null);
 
     const totalBilled = useMemo(() => invoices.reduce((acc, i) => acc + i.amount, 0), [invoices]);
     const paidInvoices = useMemo(() => invoices.filter(i => i.status === 'paid'), [invoices]);
@@ -72,19 +83,14 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
 
     return (
         <div className="flex flex-col w-full gap-6">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs">
-                <div>
-                    <h1 className="text-xl font-bold text-[#091426] tracking-tight font-display">
-                        Rent Invoicing &amp; Collections Desk
-                    </h1>
-                    <p className="text-xs text-slate-500">
-                        Real-time rent realization, digital invoicing, UPI gateway reconciliations, and collection tracking.
-                    </p>
-                </div>
-
+            {/* Action Bar */}
+            <div className="flex items-center justify-end">
                 <button
-                    onClick={() => alert('Batch automated invoices generated and dispatched via SMS / WhatsApp link.')}
+                    type="button"
+                    onClick={() => {
+                        setCycleFeedback(null);
+                        setIsCycleModalOpen(true);
+                    }}
                     className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
                 >
                     <Plus className="w-4 h-4" />
@@ -415,27 +421,42 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
                                     <span className="font-semibold text-xs">Credit Card</span>
                                     <CreditCard className="w-3.5 h-3.5 opacity-70" />
                                 </button>
+                                {/* Reference / UTR Number */}
+                                <div className="flex flex-col gap-1 mt-1">
+                                    <label className="text-xs font-semibold text-slate-700">Transaction Reference / UTR (Optional)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. UPI-984128, Cash Voucher #12"
+                                        value={paymentReference}
+                                        onChange={e => setPaymentReference(e.target.value)}
+                                        className="h-8.5 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    />
+                                </div>
                             </div>
 
                             <div className="p-2.5 rounded-lg bg-amber-50/60 border border-amber-200/70 text-[11px] text-amber-900 flex items-center gap-1.5">
                                 <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                                <span>Notice: Strict payment rules apply. There is no grace time cutoff.</span>
+                                <span>Notice: Payment will be atomically recorded in the double-entry financial ledger.</span>
                             </div>
                         </div>
 
                         <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
                             <button
                                 type="button"
-                                onClick={() => setSelectedInvoiceForPayment(null)}
+                                onClick={() => {
+                                    setSelectedInvoiceForPayment(null);
+                                    setPaymentReference('');
+                                }}
                                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    onRecordPayment(selectedInvoiceForPayment.id, selectedPaymentMode);
+                                onClick={async () => {
+                                    await onRecordPayment(selectedInvoiceForPayment.id, selectedPaymentMode, paymentReference);
                                     setSelectedInvoiceForPayment(null);
+                                    setPaymentReference('');
                                 }}
                                 className={`px-5 py-2 text-white rounded-lg text-xs font-bold shadow-xs transition-colors ${selectedPaymentMode === 'Cash'
                                         ? 'bg-emerald-700 hover:bg-emerald-800'
@@ -443,6 +464,110 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
                                     }`}
                             >
                                 Confirm {selectedPaymentMode} Payment
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Cycle Invoicing Modal */}
+            {isCycleModalOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150">
+                        {/* Header */}
+                        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+                                    <Receipt className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-slate-900">
+                                        Generate Billing Cycle
+                                    </h3>
+                                    <p className="text-xs text-slate-500">
+                                        Batch auto-generate invoices for all active residents.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsCycleModalOpen(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Form Body */}
+                        <div className="p-5 flex flex-col gap-4">
+                            {cycleFeedback && (
+                                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-800 flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    <span>{cycleFeedback}</span>
+                                </div>
+                            )}
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-slate-700">Billing Month &amp; Year</label>
+                                <input
+                                    type="text"
+                                    value={cycleMonthYear}
+                                    onChange={e => setCycleMonthYear(e.target.value)}
+                                    placeholder="e.g. November 2024, December 2024"
+                                    className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-slate-700">Payment Due Date</label>
+                                <input
+                                    type="date"
+                                    value={cycleDueDate}
+                                    onChange={e => setCycleDueDate(e.target.value)}
+                                    className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-600 flex flex-col gap-1">
+                                <span className="font-semibold text-slate-800">What happens next:</span>
+                                <span>• An invoice is generated for every active resident with their standard room tariff.</span>
+                                <span>• Residents already billed for this month will be safely skipped.</span>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-4 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
+                            <button
+                                type="button"
+                                onClick={() => setIsCycleModalOpen(false)}
+                                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                                Close
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isGeneratingCycle || !cycleMonthYear.trim() || !cycleDueDate.trim()}
+                                onClick={async () => {
+                                    if (!onGenerateCycle) return;
+                                    setIsGeneratingCycle(true);
+                                    try {
+                                        const res = await onGenerateCycle(cycleMonthYear.trim(), cycleDueDate.trim());
+                                        setCycleFeedback(
+                                            `Generated ${res?.generatedCount ?? 0} invoices (₹${(res?.totalAmount ?? 0).toLocaleString('en-IN')}). Skipped ${res?.skippedCount ?? 0} existing.`
+                                        );
+                                        setTimeout(() => {
+                                            setIsCycleModalOpen(false);
+                                        }, 1800);
+                                    } catch (err: any) {
+                                        alert(`Cycle generation failed: ${err.message || 'Check backend'}`);
+                                    } finally {
+                                        setIsGeneratingCycle(false);
+                                    }
+                                }}
+                                className="px-4 py-2 bg-[#091426] hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                            >
+                                <Plus className="w-4 h-4" />
+                                <span>{isGeneratingCycle ? 'Generating...' : 'Generate Cycle Invoices'}</span>
                             </button>
                         </div>
                     </div>

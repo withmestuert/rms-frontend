@@ -5,13 +5,12 @@ import {
     Room,
     Transaction,
     Invoice,
+    Property,
+    User,
 } from '../types';
 
 import {
     INITIAL_CRITICAL_ACTIONS,
-    INITIAL_TENANTS,
-    INITIAL_ADMISSIONS,
-    INITIAL_ROOMS,
     INITIAL_TRANSACTIONS,
     INITIAL_INVOICES,
 } from '../data/mockData';
@@ -92,7 +91,75 @@ class ApiService {
             );
         }
 
-        return response.json() as Promise<T>;
+        if (response.status === 204) {
+            return undefined as unknown as T;
+        }
+
+        const text = await response.text();
+        if (!text || text.trim() === '') {
+            return undefined as unknown as T;
+        }
+
+        try {
+            return JSON.parse(text) as T;
+        } catch {
+            return text as unknown as T;
+        }
+    }
+
+    private mapTenantFromApi(item: any): Tenant {
+        return {
+            id: item.uid,
+            name: item.name,
+            phone: item.mobileNumber,
+            email: item.email ?? '',
+            roomNumber: item.roomNo,
+            monthlyRent: item.standardRent ?? item.rent ?? 0,
+            joinedDate: item.joinedDate ?? item.enrollmentDate ?? '',
+            hometown: item.hometown ?? '',
+            profession: item.organizationName ?? '',
+            category:
+                item.tenantType === 'STUDENT'
+                    ? 'student'
+                    : 'working',
+            paymentStatus:
+                item.advancePaidStatus === 'PAID' || item.paymentStatus === 'VERIFIED'
+                    ? 'verified'
+                    : 'pending',
+            status:
+                item.status === 'ACTIVE' || item.status === 'confirmed'
+                    ? 'confirmed'
+                    : 'confirmed',
+            aadharNumber: item.aadhaarNo ?? '',
+        };
+    }
+
+    private mapAdmissionFromApi(item: any): Admission {
+        return {
+            id: item.admissionNumber,
+            residentName: item.tenantName,
+            phone: item.mobileNumber,
+            email: item.email ?? '',
+            roomNumber: item.roomNo,
+            monthlyRent: item.roomRent ?? 0,
+            moveInDate: item.enrollmentDate,
+            hometown: item.hometown ?? '',
+            profession: item.organizationName ?? '',
+            category:
+                item.tenantType === 'STUDENT'
+                    ? 'student'
+                    : 'working',
+            aadharNumber: item.aadhaarNo,
+            status:
+                item.status === 'PAID'
+                    ? 'confirmed'
+                    : 'pending',
+            allocatedAt: item.confirmedOn
+                ? new Date(
+                    item.confirmedOn
+                ).toLocaleString('en-IN')
+                : undefined,
+        };
     }
 
     // ---------------------------------------------------------
@@ -136,7 +203,7 @@ class ApiService {
     public async getCriticalActions(): Promise<CriticalAction[]> {
         return this.getStorage(
             STORAGE_KEYS.ACTIONS,
-            INITIAL_CRITICAL_ACTIONS
+            []
         );
     }
 
@@ -150,7 +217,7 @@ class ApiService {
     }
 
     // =========================================================
-    // TENANTS
+    // TENANTS (/api/tenants)
     // =========================================================
 
     public async getTenants(): Promise<Tenant[]> {
@@ -159,31 +226,25 @@ class ApiService {
         );
 
         const data = await this.parseResponse<any[]>(response);
+        return data.map(item => this.mapTenantFromApi(item));
+    }
 
-        return data.map((item): Tenant => ({
-            id: item.uid,
-            name: item.name,
-            phone: item.mobileNumber,
-            email: item.email ?? '',
-            roomNumber: item.roomNo,
-            monthlyRent: item.standardRent ?? item.rent ?? 0,
-            joinedDate: item.joinedDate ?? item.enrollmentDate ?? '',
-            hometown: item.hometown ?? '',
-            profession: item.organizationName ?? '',
-            category:
-                item.tenantType === 'STUDENT'
-                    ? 'student'
-                    : 'working',
-            paymentStatus:
-                item.paymentStatus === 'VERIFIED'
-                    ? 'verified'
-                    : 'pending',
-            status:
-                item.status === 'ACTIVE'
-                    ? 'confirmed'
-                    : 'pending',
-            aadharNumber: item.aadhaarNo ?? '',
-        }));
+    public async getTenantByUid(uid: string): Promise<Tenant> {
+        const response = await fetch(
+            this.getUrl(`/tenants/${encodeURIComponent(uid)}`)
+        );
+
+        const item = await this.parseResponse<any>(response);
+        return this.mapTenantFromApi(item);
+    }
+
+    public async getTenantsByRoom(roomNo: string): Promise<Tenant[]> {
+        const response = await fetch(
+            this.getUrl(`/tenants/room/${encodeURIComponent(roomNo)}`)
+        );
+
+        const data = await this.parseResponse<any[]>(response);
+        return data.map(item => this.mapTenantFromApi(item));
     }
 
     public async addTenant(
@@ -191,7 +252,7 @@ class ApiService {
     ): Promise<Tenant> {
         const requestBody = {
             name: tenant.name,
-            aadhaarNo: tenant.aadharNumber,
+            aadhaarNo: tenant.aadharNumber || '123456789012',
             mobileNumber: tenant.phone,
             tenantType:
                 tenant.category === 'working'
@@ -202,8 +263,6 @@ class ApiService {
             advancePaid: 0,
             standardRent: tenant.monthlyRent,
             roomNo: tenant.roomNumber,
-            enrollmentDate: tenant.joinedDate,
-            remarks: null,
         };
 
         const response = await fetch(
@@ -218,38 +277,57 @@ class ApiService {
         );
 
         const item = await this.parseResponse<any>(response);
+        return this.mapTenantFromApi(item);
+    }
 
-        return {
-            id: item.uid,
-            name: item.name,
-            phone: item.mobileNumber,
-            email: item.email ?? '',
-            roomNumber: item.roomNo,
-            monthlyRent: item.standardRent ?? item.rent ?? 0,
-            joinedDate:
-                item.joinedDate ??
-                item.enrollmentDate ??
-                '',
-            hometown: item.hometown ?? '',
-            profession: item.organizationName ?? '',
-            category:
-                item.tenantType === 'STUDENT'
-                    ? 'student'
-                    : 'working',
-            paymentStatus:
-                item.paymentStatus === 'VERIFIED'
-                    ? 'verified'
-                    : 'pending',
-            status:
-                item.status === 'ACTIVE'
-                    ? 'confirmed'
-                    : 'pending',
-            aadharNumber: item.aadhaarNo ?? '',
+    public async updateTenant(
+        uid: string,
+        tenantData: Partial<Tenant>
+    ): Promise<Tenant> {
+        const requestBody = {
+            uid,
+            name: tenantData.name,
+            aadhaarNo: tenantData.aadharNumber,
+            mobileNumber: tenantData.phone,
+            tenantType:
+                tenantData.category === 'working'
+                    ? 'WORKING'
+                    : 'STUDENT',
+            organizationName: tenantData.profession || 'Working',
+            parentContact: null,
+            advancePaid: 0,
+            standardRent: tenantData.monthlyRent ?? 8000,
+            roomNo: tenantData.roomNumber,
         };
+
+        const response = await fetch(
+            this.getUrl(`/tenants/${encodeURIComponent(uid)}`),
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+            }
+        );
+
+        const item = await this.parseResponse<any>(response);
+        return this.mapTenantFromApi(item);
+    }
+
+    public async deleteTenant(uid: string): Promise<void> {
+        const response = await fetch(
+            this.getUrl(`/tenants/${encodeURIComponent(uid)}`),
+            {
+                method: 'DELETE',
+            }
+        );
+
+        await this.parseResponse<string>(response);
     }
 
     // =========================================================
-    // ADMISSIONS
+    // ADMISSIONS (/api/admissions)
     // =========================================================
 
     public async getAdmissions(): Promise<Admission[]> {
@@ -258,34 +336,16 @@ class ApiService {
         );
 
         const data = await this.parseResponse<any[]>(response);
+        return data.map(item => this.mapAdmissionFromApi(item));
+    }
 
-        return data.map(
-            (item): Admission => ({
-                id: item.admissionNumber,
-                residentName: item.tenantName,
-                phone: item.mobileNumber,
-                email: '',
-                roomNumber: item.roomNo,
-                monthlyRent: item.roomRent ?? 0,
-                moveInDate: item.enrollmentDate,
-                hometown: '',
-                profession: '',
-                category:
-                    item.tenantType === 'STUDENT'
-                        ? 'student'
-                        : 'working',
-                aadharNumber: item.aadhaarNo,
-                status:
-                    item.status === 'PAID'
-                        ? 'confirmed'
-                        : 'pending',
-                allocatedAt: item.confirmedOn
-                    ? new Date(
-                        item.confirmedOn
-                    ).toLocaleString('en-IN')
-                    : undefined,
-            })
+    public async getAdmissionByNumber(admissionNumber: string): Promise<Admission> {
+        const response = await fetch(
+            this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}`)
         );
+
+        const item = await this.parseResponse<any>(response);
+        return this.mapAdmissionFromApi(item);
     }
 
     public async createAdmission(
@@ -294,11 +354,6 @@ class ApiService {
             'id' | 'allocatedAt'
         >
     ): Promise<Admission> {
-        console.log(
-            '[ApiService] Creating admission:',
-            admissionData
-        );
-
         const requestBody = {
             tenantUid: null,
             name: admissionData.residentName,
@@ -318,11 +373,6 @@ class ApiService {
             remarks: null,
         };
 
-        console.log(
-            '[ApiService] POST /admissions:',
-            requestBody
-        );
-
         const response = await fetch(
             this.getUrl('/admissions'),
             {
@@ -334,70 +384,130 @@ class ApiService {
             }
         );
 
-        const item =
-            await this.parseResponse<any>(response);
+        const item = await this.parseResponse<any>(response);
+        return this.mapAdmissionFromApi(item);
+    }
 
-        console.log(
-            '[ApiService] Admission created:',
-            item
+    public async confirmAdmission(admissionNumber: string): Promise<Admission> {
+        const response = await fetch(
+            this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}/confirm`),
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            }
         );
 
-        return {
-            id: item.admissionNumber,
-            residentName: item.tenantName,
-            phone: item.mobileNumber,
-            email: '',
-            roomNumber: item.roomNo,
-            monthlyRent: item.roomRent ?? 0,
-            moveInDate: item.enrollmentDate,
-            hometown: '',
-            profession:
-                item.organizationName ?? '',
-            category:
-                item.tenantType === 'STUDENT'
-                    ? 'student'
-                    : 'working',
-            aadharNumber: item.aadhaarNo,
-            status:
-                item.status === 'PAID'
-                    ? 'confirmed'
-                    : 'pending',
-            allocatedAt: item.confirmedOn
-                ? new Date(
-                    item.confirmedOn
-                ).toLocaleString('en-IN')
-                : undefined,
-        };
+        const item = await this.parseResponse<any>(response);
+        return this.mapAdmissionFromApi(item);
+    }
+
+    public async cancelAdmission(admissionNumber: string): Promise<void> {
+        const response = await fetch(
+            this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}`),
+            {
+                method: 'DELETE',
+            }
+        );
+
+        await this.parseResponse<string>(response);
     }
 
     // =========================================================
-    // ROOMS
+    // ROOMS (/api/rooms)
     // =========================================================
 
     public async getRooms(): Promise<Room[]> {
-        const response = await fetch(
-            this.getUrl('/rooms')
-        );
+        const [roomsResponse, tenants] = await Promise.all([
+            fetch(this.getUrl('/rooms')),
+            this.getTenants().catch(() => [] as Tenant[]),
+        ]);
 
-        const data = await this.parseResponse<any[]>(response);
+        const data = await this.parseResponse<any[]>(roomsResponse);
 
-        return data.map(
-            (item): Room => ({
+        return data.map((item): Room => {
+            const roomTenants = tenants.filter(t => t.roomNumber === item.roomNo);
+            const residentNames = roomTenants.map(t => t.name);
+            const capacity = item.occupancy ?? 0;
+            const currentOccupancy = item.currentOccupancy ?? roomTenants.length;
+
+            return {
                 roomNumber: item.roomNo,
                 floor: String(item.floor ?? 0),
                 roomType: item.roomType ?? '',
                 rent: item.rentPerMonth ?? 0,
-                capacity: item.occupancy ?? 0,
-                occupied: item.currentOccupancy ?? 0,
-
+                capacity: capacity,
+                occupied: currentOccupancy,
                 status:
-                    item.currentOccupancy >= item.occupancy
+                    currentOccupancy >= capacity
                         ? 'full'
                         : 'available',
+                residents: residentNames.length > 0 ? residentNames : (item.residents ?? []),
+            };
+        });
+    }
 
-                residents: item.residents ?? [],
-            })
+    public async getRoomByRoomNo(roomNo: string): Promise<Room> {
+        const response = await fetch(
+            this.getUrl(`/rooms/${encodeURIComponent(roomNo)}`)
         );
+
+        const item = await this.parseResponse<any>(response);
+        const tenantsInRoom = await this.getTenantsByRoom(roomNo).catch(() => [] as Tenant[]);
+        const residentNames = tenantsInRoom.map(t => t.name);
+        const capacity = item.occupancy ?? 0;
+        const currentOccupancy = item.currentOccupancy ?? residentNames.length;
+
+        return {
+            roomNumber: item.roomNo,
+            floor: String(item.floor ?? 0),
+            roomType: item.roomType ?? '',
+            rent: item.rentPerMonth ?? 0,
+            capacity: capacity,
+            occupied: currentOccupancy,
+            status:
+                currentOccupancy >= capacity
+                    ? 'full'
+                    : 'available',
+            residents: residentNames.length > 0 ? residentNames : (item.residents ?? []),
+        };
+    }
+
+    public async createRoom(roomData: {
+        roomNo: string;
+        floor: string;
+        roomType: string;
+        rentPerMonth: number;
+        occupancy: number;
+        available: boolean;
+    }): Promise<Room> {
+        const response = await fetch(
+            this.getUrl('/rooms'),
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(roomData),
+            }
+        );
+
+        const item = await this.parseResponse<any>(response);
+
+        return {
+            roomNumber: item.roomNo,
+            floor: String(item.floor ?? 0),
+            rent: item.rentPerMonth ?? 0,
+            capacity: item.occupancy ?? 0,
+            occupied: item.currentOccupancy ?? 0,
+            roomType: item.roomType ?? 'Single',
+            status:
+                (item.currentOccupancy ?? 0) >= (item.occupancy ?? 1)
+                    ? 'full'
+                    : 'available',
+            residents: item.residents ?? [],
+        };
     }
 
     public async updateRoom(
@@ -426,8 +536,7 @@ class ApiService {
             }
         );
 
-        const item =
-            await this.parseResponse<any>(response);
+        const item = await this.parseResponse<any>(response);
 
         return {
             roomNumber: item.roomNo,
@@ -437,53 +546,12 @@ class ApiService {
             occupied: item.currentOccupancy ?? 0,
             roomType: item.roomType ?? 'Single',
             status:
-                item.currentOccupancy >= item.occupancy
+                (item.currentOccupancy ?? 0) >= (item.occupancy ?? 1)
                     ? 'full'
                     : 'available',
             residents: item.residents ?? [],
         };
     }
-
-    public async createRoom(roomData: {
-        roomNo: string;
-        floor: string;
-        roomType: string;
-        rentPerMonth: number;
-        occupancy: number;
-        available: boolean;
-    }): Promise<Room> {
-        const response = await fetch(
-            this.getUrl('/rooms'),
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(roomData),
-            }
-        );
-
-        const item =
-            await this.parseResponse<any>(response);
-
-        return {
-            roomNumber: item.roomNo,
-            floor: String(item.floor ?? 0),
-            rent: item.rentPerMonth ?? 0,
-            capacity: item.occupancy ?? 0,
-            occupied: item.currentOccupancy ?? 0,
-            roomType: item.roomType ?? 'Single',
-
-            status:
-                item.currentOccupancy >= item.occupancy
-                    ? 'full'
-                    : 'available',
-
-            residents: item.residents ?? [],
-        };
-    }
-
-    //Delete Room 
 
     public async deleteRoom(
         roomNumber: string
@@ -504,175 +572,395 @@ class ApiService {
         roomNumber: string,
         tenantName: string
     ): Promise<Room> {
-        const currentRoom = await this.getRooms();
-
-        const room = currentRoom.find(
-            item =>
-                item.roomNumber === roomNumber
-        );
+        const currentRooms = await this.getRooms();
+        const room = currentRooms.find(item => item.roomNumber === roomNumber);
 
         if (!room) {
-            throw new Error(
-                `Room ${roomNumber} not found`
-            );
+            throw new Error(`Room ${roomNumber} not found`);
         }
 
-        const response = await fetch(
-            this.getUrl(`/rooms/${encodeURIComponent(roomNumber)}`),
-            {
-                method: 'PUT',
-                headers: {
-                    'Content-Type':
-                        'application/json',
-                },
-                body: JSON.stringify({
-                    roomNo: room.roomNumber,
-                    floor: room.floor,
-                    roomType: room.roomType ?? '',
-                    rentPerMonth: room.rent,
-                    occupancy: room.capacity,
-                    available: room.occupied + 1 < room.capacity,
-                    currentOccupancy: room.occupied + 1,
-                    residents: [
-                        ...room.residents,
-                        tenantName,
-                    ],
-                }),
-            }
-        );
-
-        const item =
-            await this.parseResponse<any>(response);
-
         return {
-            roomNumber: item.roomNo ?? item.roomNumber,
-            floor: String(item.floor ?? ''),
-            roomType: item.roomType ?? '',
-            capacity: item.occupancy ?? 0,
-            occupied: item.currentOccupancy ?? 0,
-            status:
-                (item.currentOccupancy ?? 0) >= (item.occupancy ?? 1)
-                    ? 'full'
-                    : 'available',
-            residents: item.residents ?? [],
-            rent: item.rentPerMonth ?? 0,
+            ...room,
+            occupied: room.occupied + 1,
+            residents: [...room.residents, tenantName],
+            status: room.occupied + 1 >= room.capacity ? 'full' : 'available',
         };
     }
 
     // =========================================================
-    // FINANCE
+    // FINANCE & BILLING (/api/invoices, /api/ledger)
     // =========================================================
 
-    public async getTransactions(): Promise<Transaction[]> {
-        return this.getStorage(
-            STORAGE_KEYS.TRANSACTIONS,
-            INITIAL_TRANSACTIONS
-        );
+    public async getTransactions(type?: string): Promise<Transaction[]> {
+        try {
+            const url = this.getUrl('/ledger' + (type ? `?type=${encodeURIComponent(type.toUpperCase())}` : ''));
+            const response = await fetch(url);
+            const data = await this.parseResponse<any[]>(response);
+            return data.map((item: any): Transaction => ({
+                id: String(item.id),
+                date: item.date,
+                referenceNumber: item.referenceNumber,
+                type: (item.type || 'credit').toLowerCase() as any,
+                accountHead: item.accountHead,
+                description: item.description,
+                tenantOrVendor: item.tenantOrVendor,
+                amount: item.amount,
+                paymentMode: item.paymentMode,
+                runningBalance: item.runningBalance,
+            }));
+        } catch (err) {
+            console.warn('Backend ledger unavailable, falling back to local storage:', err);
+            return this.getStorage(STORAGE_KEYS.TRANSACTIONS, []);
+        }
     }
 
-    public async getInvoices(): Promise<Invoice[]> {
-        return this.getStorage(
-            STORAGE_KEYS.INVOICES,
-            INITIAL_INVOICES
-        );
+    public async getInvoices(monthYear?: string, status?: string): Promise<Invoice[]> {
+        try {
+            const params = new URLSearchParams();
+            if (monthYear) params.append('monthYear', monthYear);
+            if (status) params.append('status', status.toUpperCase());
+
+            const url = this.getUrl('/invoices' + (params.toString() ? `?${params.toString()}` : ''));
+            const response = await fetch(url);
+            const data = await this.parseResponse<any[]>(response);
+            return data.map((item: any): Invoice => ({
+                id: String(item.id),
+                invoiceNumber: item.invoiceNumber,
+                tenantName: item.tenantName,
+                roomNumber: item.roomNo,
+                monthYear: item.monthYear,
+                amount: item.amount,
+                dueDate: item.dueDate,
+                status: (item.status || 'pending').toLowerCase() as any,
+                paidOn: item.paidOn,
+                paymentMode: item.paymentMode,
+            }));
+        } catch (err) {
+            console.warn('Backend invoices unavailable, falling back to local storage:', err);
+            return this.getStorage(STORAGE_KEYS.INVOICES, []);
+        }
+    }
+
+    public async generateCycleInvoices(monthYear: string, dueDate: string): Promise<any> {
+        const response = await fetch(this.getUrl('/invoices/generate-cycle'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monthYear, dueDate }),
+        });
+        return this.parseResponse<any>(response);
     }
 
     public async recordPayment(
         invoiceId: string,
-        paymentMode: string
+        paymentMode: string,
+        transactionRef?: string,
+        paidOn?: string
     ): Promise<void> {
-        const invoices = await this.getInvoices();
+        try {
+            const response = await fetch(this.getUrl(`/invoices/${encodeURIComponent(invoiceId)}/pay`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    paymentMode,
+                    transactionRef: transactionRef || undefined,
+                    paidOn: paidOn || undefined,
+                }),
+            });
+            await this.parseResponse<any>(response);
+        } catch (err) {
+            console.warn('Backend invoice payment recording failed, using local storage fallback:', err);
+            const invoices = await this.getStorage<Invoice[]>(STORAGE_KEYS.INVOICES, []);
 
-        let paidAmount = 0;
-        let tenantName = '';
-        let roomNumber = '';
+            let paidAmount = 0;
+            let tenantName = '';
+            let roomNumber = '';
 
-        const updatedInvoices =
-            invoices.map(inv => {
+            const updatedInvoices = invoices.map(inv => {
                 if (inv.id === invoiceId) {
                     paidAmount = inv.amount;
-                    tenantName =
-                        inv.tenantName;
-                    roomNumber =
-                        inv.roomNumber;
+                    tenantName = inv.tenantName;
+                    roomNumber = inv.roomNumber;
 
                     return {
                         ...inv,
                         status: 'paid' as const,
-                        paidOn:
-                            new Date().toLocaleDateString(
-                                'en-GB',
-                                {
-                                    day: '2-digit',
-                                    month: 'short',
-                                    year: 'numeric',
-                                }
-                            ),
+                        paidOn: paidOn || new Date().toISOString().split('T')[0],
                         paymentMode,
                     };
                 }
-
                 return inv;
             });
 
-        this.setStorage(
-            STORAGE_KEYS.INVOICES,
-            updatedInvoices
-        );
+            this.setStorage(STORAGE_KEYS.INVOICES, updatedInvoices);
 
-        const transactions =
-            await this.getTransactions();
+            const transactions = await this.getStorage<Transaction[]>(STORAGE_KEYS.TRANSACTIONS, []);
+            const lastBalance = transactions[0]?.runningBalance ?? 450000;
 
-        const lastBalance =
-            transactions[0]?.runningBalance ??
-            450000;
+            const newTransaction: Transaction = {
+                id: `tx-${Date.now()}`,
+                date: new Date().toISOString().split('T')[0],
+                referenceNumber: transactionRef || `${paymentMode}/${Date.now()}`,
+                type: 'credit',
+                accountHead: 'Rent Payment',
+                description: `Monthly Rent - ${roomNumber} (${tenantName})`,
+                tenantOrVendor: tenantName,
+                amount: paidAmount,
+                paymentMode: paymentMode as any,
+                runningBalance: lastBalance + paidAmount,
+            };
 
-        const newTransaction: Transaction = {
-            id: `tx-${Date.now()}`,
-            date:
-                new Date().toLocaleDateString(
-                    'en-GB',
-                    {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                    }
-                ) +
-                ' • ' +
-                new Date().toLocaleTimeString(
-                    'en-US',
-                    {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false,
-                    }
-                ) +
-                ' IST',
-            referenceNumber:
-                `${paymentMode}/` +
-                Math.floor(
-                    10000000000 +
-                    Math.random() *
-                    90000000000
-                ),
-            type: 'credit',
-            accountHead: 'Rent Payment',
-            description:
-                `Monthly Rent - ${roomNumber} (${tenantName})`,
-            tenantOrVendor: tenantName,
-            amount: paidAmount,
-            paymentMode: paymentMode as any,
-            runningBalance:
-                lastBalance + paidAmount,
+            this.setStorage(STORAGE_KEYS.TRANSACTIONS, [newTransaction, ...transactions]);
+        }
+    }
+
+    public async getLedgerBalance(): Promise<number> {
+        try {
+            const response = await fetch(this.getUrl('/ledger/balance'));
+            const data = await this.parseResponse<{ runningBalance: number }>(response);
+            return data.runningBalance;
+        } catch {
+            const txns = await this.getTransactions();
+            return txns[0]?.runningBalance ?? 482150;
+        }
+    }
+
+    public async recordTransaction(dto: {
+        type: 'credit' | 'debit';
+        accountHead: string;
+        description: string;
+        tenantOrVendor: string;
+        amount: number;
+        paymentMode: string;
+        date?: string;
+    }): Promise<Transaction> {
+        const response = await fetch(this.getUrl('/ledger'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...dto,
+                type: dto.type.toUpperCase(),
+            }),
+        });
+        const item = await this.parseResponse<any>(response);
+        return {
+            id: String(item.id),
+            date: item.date,
+            referenceNumber: item.referenceNumber,
+            type: (item.type || 'credit').toLowerCase() as any,
+            accountHead: item.accountHead,
+            description: item.description,
+            tenantOrVendor: item.tenantOrVendor,
+            amount: item.amount,
+            paymentMode: item.paymentMode,
+            runningBalance: item.runningBalance,
         };
+    }
 
-        this.setStorage(
-            STORAGE_KEYS.TRANSACTIONS,
-            [
-                newTransaction,
-                ...transactions,
-            ]
+    /**
+     * Seeds mock data into localStorage on demand (only for testing).
+     * Does NOT initialize upfront automatically.
+     */
+    public async loadMockData(): Promise<void> {
+        this.setStorage(STORAGE_KEYS.ACTIONS, INITIAL_CRITICAL_ACTIONS);
+        this.setStorage(STORAGE_KEYS.TRANSACTIONS, INITIAL_TRANSACTIONS);
+        this.setStorage(STORAGE_KEYS.INVOICES, INITIAL_INVOICES);
+    }
+
+    /**
+     * Clears all mock/localStorage data.
+     */
+    public async clearMockData(): Promise<void> {
+        localStorage.removeItem(STORAGE_KEYS.ACTIONS);
+        localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
+        localStorage.removeItem(STORAGE_KEYS.INVOICES);
+    }
+
+    // =========================================================
+    // PROPERTIES (/api/properties)
+    // =========================================================
+
+    public async getProperties(): Promise<Property[]> {
+        const response = await fetch(this.getUrl('/properties'));
+        const data = await this.parseResponse<any[]>(response);
+        return data.map((p): Property => ({
+            id: p.id,
+            name: p.name,
+            code: p.code,
+            address: p.address,
+            city: p.city,
+            state: p.state,
+            propertyType: p.propertyType,
+            totalFloors: p.totalFloors,
+            totalRooms: p.totalRooms,
+            contactNumber: p.contactNumber,
+            contactEmail: p.contactEmail,
+            status: p.status,
+        }));
+    }
+
+    public async getPropertyById(id: number): Promise<Property> {
+        const response = await fetch(this.getUrl(`/properties/${id}`));
+        const p = await this.parseResponse<any>(response);
+        return {
+            id: p.id,
+            name: p.name,
+            code: p.code,
+            address: p.address,
+            city: p.city,
+            state: p.state,
+            propertyType: p.propertyType,
+            totalFloors: p.totalFloors,
+            totalRooms: p.totalRooms,
+            contactNumber: p.contactNumber,
+            contactEmail: p.contactEmail,
+            status: p.status,
+        };
+    }
+
+    public async createProperty(propertyData: Omit<Property, 'id'>): Promise<Property> {
+        const response = await fetch(this.getUrl('/properties'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(propertyData),
+        });
+        const p = await this.parseResponse<any>(response);
+        return {
+            id: p.id,
+            name: p.name,
+            code: p.code,
+            address: p.address,
+            city: p.city,
+            state: p.state,
+            propertyType: p.propertyType,
+            totalFloors: p.totalFloors,
+            totalRooms: p.totalRooms,
+            contactNumber: p.contactNumber,
+            contactEmail: p.contactEmail,
+            status: p.status,
+        };
+    }
+
+    public async updateProperty(id: number, propertyData: Partial<Property>): Promise<Property> {
+        const response = await fetch(this.getUrl(`/properties/${id}`), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(propertyData),
+        });
+        const p = await this.parseResponse<any>(response);
+        return {
+            id: p.id,
+            name: p.name,
+            code: p.code,
+            address: p.address,
+            city: p.city,
+            state: p.state,
+            propertyType: p.propertyType,
+            totalFloors: p.totalFloors,
+            totalRooms: p.totalRooms,
+            contactNumber: p.contactNumber,
+            contactEmail: p.contactEmail,
+            status: p.status,
+        };
+    }
+
+    public async deleteProperty(id: number): Promise<void> {
+        const response = await fetch(this.getUrl(`/properties/${id}`), {
+            method: 'DELETE',
+        });
+        await this.parseResponse<any>(response);
+    }
+
+    // =========================================================
+    // USERS (/api/users)
+    // =========================================================
+
+    public async getUsers(): Promise<User[]> {
+        const response = await fetch(this.getUrl('/users'));
+        const data = await this.parseResponse<any[]>(response);
+        return data.map((u): User => ({
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            fullName: u.fullName,
+            role: u.role,
+            phone: u.phone,
+            status: u.status,
+        }));
+    }
+
+    public async getUserById(id: number): Promise<User> {
+        const response = await fetch(this.getUrl(`/users/${id}`));
+        const u = await this.parseResponse<any>(response);
+        return {
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            fullName: u.fullName,
+            role: u.role,
+            phone: u.phone,
+            status: u.status,
+        };
+    }
+
+    public async createUser(userData: Omit<User, 'id'>): Promise<User> {
+        const response = await fetch(this.getUrl('/users'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(userData),
+        });
+        const u = await this.parseResponse<any>(response);
+        return {
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            fullName: u.fullName,
+            role: u.role,
+            phone: u.phone,
+            status: u.status,
+        };
+    }
+
+    public async updateUser(id: number, userData: Partial<User>): Promise<User> {
+        const response = await fetch(this.getUrl(`/users/${id}`), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(userData),
+        });
+        const u = await this.parseResponse<any>(response);
+        return {
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            fullName: u.fullName,
+            role: u.role,
+            phone: u.phone,
+            status: u.status,
+        };
+    }
+
+    public async deleteUser(id: number): Promise<void> {
+        const response = await fetch(this.getUrl(`/users/${id}`), {
+            method: 'DELETE',
+        });
+        await this.parseResponse<any>(response);
+    }
+
+    // =========================================================
+    // TENANT VERIFICATION (/api/tenants/{uid}/verify-advance)
+    // =========================================================
+
+    public async verifyTenantAdvance(uid: string, amount?: number): Promise<Tenant> {
+        const body = amount != null ? JSON.stringify({ amount }) : '{}';
+        const response = await fetch(
+            this.getUrl(`/tenants/${encodeURIComponent(uid)}/verify-advance`),
+            {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+            }
         );
+        const item = await this.parseResponse<any>(response);
+        return this.mapTenantFromApi(item);
     }
 
     // =========================================================

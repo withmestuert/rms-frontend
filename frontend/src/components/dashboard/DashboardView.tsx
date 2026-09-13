@@ -122,150 +122,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     return (
         <div className="flex flex-col w-full gap-5">
-            {/* Property Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4.5 rounded-xl border border-slate-200/80 shadow-xs">
-                <div>
-                    <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded uppercase tracking-wider">
-                            Greenwood Residency
-                        </span>
-                        <span className="font-mono text-xs text-slate-500 flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-                            Live Operations
-                        </span>
-                    </div>
-                    <h1 className="text-xl font-bold text-[#091426] tracking-tight font-display">
-                        Property Dashboard
-                    </h1>
-                    <p className="text-xs text-slate-500">
-                        Unified inventory calculation, monthly rent realization, and urgent operations desk.
-                    </p>
-                </div>
+            {/* Action Bar */}
+            <div className="flex items-center justify-end gap-2.5">
+                <button
+                    onClick={() => onNavigate('rooms')}
+                    className="h-9 px-3.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200/80 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                >
+                    <DoorOpen className="w-4 h-4 text-slate-600" />
+                    <span>View Rooms</span>
+                </button>
 
-                <div className="flex items-center gap-2.5">
-                    <button
-                        onClick={() => onNavigate('rooms')}
-                        className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
-                    >
-                        <DoorOpen className="w-4 h-4 text-slate-600" />
-                        <span>View All Rooms</span>
-                    </button>
-
-                    <button
-                        onClick={onQuickAdmission}
-                        className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
-                    >
-                        <UserPlus className="w-4 h-4" />
-                        <span>Enrol Tenant</span>
-                    </button>
-
-
-                </div>
-            </div>
-
-            {/* MINIMALIZED DATA STRIP: Single Lengthy Card with Low Height Partitioned into 4 Interconnected Metrics */}
-            <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs px-4 sm:px-6 py-3.5">
-                <div className="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200/90 -my-1 lg:my-0">
-                    {/* Partition 1: Total Rooms */}
-                    <div className="py-2.5 lg:py-0 lg:pr-6 flex flex-col justify-center">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                Total Rooms
-                            </span>
-                            <span className="text-[10px] font-medium text-slate-400 font-mono">100% Configured</span>
-                        </div>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold text-[#091426] tracking-tight tabular-nums font-display">
-                                {totalRooms}
-                            </span>
-                            <span className="text-xs font-semibold text-slate-500">Units Total</span>
-                        </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
-                            <span>Across Floor 1, 2, 3</span>
-                        </div>
-                    </div>
-
-                    {/* Partition 2: Available Rooms */}
-                    <div className="py-2.5 lg:py-0 lg:px-6 flex flex-col justify-center">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-                                Available Rooms
-                            </span>
-                            <button
-                                onClick={() => onNavigate('rooms')}
-                                className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5"
-                            >
-                                <span>Filter</span>
-                                <ChevronRight className="w-2.5 h-2.5" />
-                            </button>
-                        </div>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold text-emerald-700 tracking-tight tabular-nums font-display">
-                                {availableRooms}
-                            </span>
-                            <span className="text-xs font-semibold text-emerald-600">Open Units</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            <span>Rooms with vacant capacity</span>
-                        </div>
-                    </div>
-
-                    {/* Partition 3: Occupancy Rate */}
-                    <div className="py-2.5 lg:py-0 lg:px-6 flex flex-col justify-center">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                Occupancy Rate
-                            </span>
-                            <span className="text-[10px] font-mono font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded">
-                                {occupancyPercentage}%
-                            </span>
-                        </div>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold text-[#091426] tracking-tight tabular-nums font-display">
-                                {totalOccupied}
-                            </span>
-                            <span className="text-xs font-semibold text-slate-500">/ {totalCapacity} Beds</span>
-                        </div>
-                        <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                            <div
-                                className="bg-blue-600 h-full rounded-full transition-all duration-500"
-                                style={{ width: `${Math.min(100, Math.max(0, parseFloat(occupancyPercentage)))}%` }}
-                            ></div>
-                        </div>
-                    </div>
-
-                    {/* Partition 4: Total Vacancies */}
-                    <div className="py-2.5 lg:py-0 lg:pl-6 flex flex-col justify-center">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700">
-                                Vacancies
-                            </span>
-                            <button
-                                onClick={onQuickAdmission}
-                                className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5"
-                            >
-                                <span>+ Enrol</span>
-                            </button>
-                        </div>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold text-blue-700 tracking-tight tabular-nums font-display">
-                                {totalVacant}
-                            </span>
-                            <span className="text-xs font-semibold text-blue-600">Spots Ready</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                            <span>Available for immediate check-in</span>
-                        </div>
-                    </div>
-                </div>
+                <button
+                    onClick={onQuickAdmission}
+                    className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                >
+                    <UserPlus className="w-4 h-4" />
+                    <span>New Admission</span>
+                </button>
             </div>
 
             {/* 2-COLUMN SECTION:
           - Left (col-span-7/8): Monthly Rent Paid Card with Dropdown (fetches previous months data)
-          - Right (col-span-5/4): Immediate Action Required (Vertical Box on Top Right) */}
+          - Right (col-span-5/4): Vacate Requests Desk (Vertical Box on Top Right) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
                 {/* LEFT: Monthly Rent Paid Card */}
                 <div className="lg:col-span-7 xl:col-span-8 bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col gap-4">
@@ -277,11 +155,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 <h2 className="text-sm font-bold text-[#091426] tracking-tight">
                                     Tenant Rent Collection Status
                                 </h2>
-                                {rentSummary.isCurrent && (
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
-                                        Live Month
-                                    </span>
-                                )}
                             </div>
                             <p className="text-xs text-slate-500 mt-0.5">
                                 Real-time realization of resident rents, payment modes, and previous month records.
@@ -588,58 +461,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                 </div>
 
-                {/* RIGHT: Immediate Action Required - VERTICAL BOX ON TOP RIGHT */}
+                {/* RIGHT: Vacate Requests Desk */}
                 <div className="lg:col-span-5 xl:col-span-4 bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col gap-3.5">
                     {/* Header */}
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                         <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
-                                <AlertTriangle className="w-4 h-4" />
+                                <Calendar className="w-4 h-4" />
                             </div>
                             <div>
                                 <h2 className="text-sm font-bold text-[#091426] tracking-tight">
-                                    Immediate Action Required
+                                    Vacate Requests
                                 </h2>
-                                <p className="text-[11px] text-slate-500">Urgent operational events</p>
+                                <p className="text-[11px] text-slate-500">Scheduled move-outs &amp; vacate notices</p>
                             </div>
                         </div>
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 font-mono">
-                            {criticalActions.length} Pending
+                            {criticalActions.filter(a => a.badgeText.toLowerCase().includes('vacate') || a.code.toLowerCase().includes('vac')).length} Pending
                         </span>
                     </div>
 
-                    {/* Vertical Box of Urgent Action Cards */}
+                    {/* Vertical Box of Vacate Action Cards */}
                     <div className="flex flex-col gap-2.5">
-                        {criticalActions.length === 0 ? (
+                        {criticalActions.filter(a => a.badgeText.toLowerCase().includes('vacate') || a.code.toLowerCase().includes('vac')).length === 0 ? (
                             <div className="py-8 px-4 text-center flex flex-col items-center justify-center gap-2 text-slate-400 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
                                 <div className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
                                     <CheckCircle2 className="w-5 h-5" />
                                 </div>
-                                <span className="text-xs font-bold text-slate-700">All Urgent Actions Resolved</span>
-                                <span className="text-[11px] text-slate-400 max-w-[200px]">
-                                    No pending enrolments, unacknowledged notices, or critical blocks.
+                                <span className="text-xs font-bold text-slate-700">No Pending Vacate Requests</span>
+                                <span className="text-[11px] text-slate-400 max-w-[220px]">
+                                    All scheduled departures and move-out notices are clear.
                                 </span>
                             </div>
                         ) : (
-                            criticalActions.map(action => {
-                                const isEnrolment = action.badgeText.toLowerCase().includes('enrol');
-                                const isVacate = action.badgeText.toLowerCase().includes('vacate');
-
-                                return (
+                            criticalActions
+                                .filter(a => a.badgeText.toLowerCase().includes('vacate') || a.code.toLowerCase().includes('vac'))
+                                .map(action => (
                                     <div
                                         key={action.id}
-                                        className="p-3 bg-slate-50/90 hover:bg-slate-50 rounded-lg border border-slate-200 flex flex-col justify-between gap-2 transition-all hover:border-slate-300"
+                                        className="p-3 bg-amber-50/40 hover:bg-amber-50/70 rounded-lg border border-amber-200/80 flex flex-col justify-between gap-2 transition-all"
                                     >
                                         <div>
                                             <div className="flex items-center justify-between">
-                                                <span
-                                                    className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded ${isEnrolment
-                                                        ? 'bg-blue-100 text-blue-800'
-                                                        : isVacate
-                                                            ? 'bg-amber-100 text-amber-900'
-                                                            : 'bg-rose-100 text-rose-800'
-                                                        }`}
-                                                >
+                                                <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-900">
                                                     {action.badgeText}
                                                 </span>
                                                 <span className="font-mono text-[10px] font-bold text-slate-400">
@@ -650,16 +514,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                             <div className="text-[11px] text-slate-500 mt-0.5">{action.subtitle}</div>
                                         </div>
 
-                                        <div className="flex items-center gap-2 pt-2 border-t border-slate-200/70 mt-0.5">
+                                        <div className="flex items-center gap-2 pt-2 border-t border-amber-200/50 mt-0.5">
                                             <button
-                                                onClick={() => {
-                                                    if (isEnrolment) onNavigate('admissions');
-                                                    else if (isVacate) onNavigate('rooms');
-                                                    else onActionDismiss(action.id);
-                                                }}
+                                                onClick={() => onNavigate('rooms')}
                                                 className="flex-1 py-1 px-2.5 bg-[#091426] hover:bg-slate-800 text-white rounded text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
                                             >
-                                                <span>{action.primaryActionText}</span>
+                                                <span>{action.primaryActionText || 'View Room'}</span>
                                             </button>
                                             <button
                                                 onClick={() => onActionDismiss(action.id)}
@@ -669,54 +529,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                             </button>
                                         </div>
                                     </div>
-                                );
-                            })
-                        )}
-
-                        {/* Overdue Rent Notice Card in Action Required Box if current month has unpaid rents */}
-                        {rentSummary.isCurrent && rentSummary.overdueCount > 0 && (
-                            <div className="p-3 bg-rose-50/70 rounded-lg border border-rose-200/80 flex flex-col gap-2">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-rose-100 text-rose-800">
-                                        Overdue Notice
-                                    </span>
-                                    <span className="text-[10px] font-mono text-rose-600 font-bold">
-                                        {rentSummary.overdueCount} Overdue
-                                    </span>
-                                </div>
-                                <div>
-                                    <div className="text-xs font-bold text-slate-900">
-                                        Past-Due Monthly Rent Invoices
-                                    </div>
-                                    <div className="text-[11px] text-slate-600">
-                                        ₹{rentSummary.totalPendingAmount.toLocaleString('en-IN')} pending realization for {selectedMonth}.
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => onNavigate('rent-and-billing')}
-                                    className="w-full py-1 px-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[11px] font-semibold transition-colors text-center"
-                                >
-                                    Review Invoices Desk
-                                </button>
-                            </div>
+                                ))
                         )}
                     </div>
                 </div>
             </div>
 
-            {/* Interactive Room Terminal Matrix */}
+            {/* Rooms Availability */}
             <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded bg-slate-900 text-cyan-400 flex items-center justify-center font-mono">
-                            <Terminal className="w-4 h-4" />
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-200/70 text-blue-600 flex items-center justify-center">
+                            <DoorOpen className="w-4 h-4" />
                         </div>
                         <div>
                             <h2 className="text-sm font-bold text-[#091426]">
-                                Interactive Room Terminal Matrix
+                                Rooms Availability
                             </h2>
                             <p className="text-xs text-slate-500">
-                                Hover to preview rent &amp; occupancy • Click any room to navigate directly into its unit controller
+                                Live status of rooms, current occupancy, and vacancies across all floors
                             </p>
                         </div>
                     </div>
@@ -748,48 +579,57 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 onMouseEnter={() => setHoveredRoom(room.roomNumber)}
                                 onMouseLeave={() => setHoveredRoom(null)}
                                 onClick={() => onNavigate('rooms')}
-                                className={`group relative p-3 rounded-xl text-left cursor-pointer transition-all duration-150 border font-mono ${isFull
-                                    ? 'bg-slate-900 text-slate-200 border-slate-800 hover:bg-black hover:text-cyan-300 hover:border-cyan-400 hover:ring-2 hover:ring-cyan-400/60 hover:shadow-lg'
+                                className={`group relative p-3 rounded-xl text-left cursor-pointer transition-all duration-200 border shadow-2xs hover:shadow-md hover:-translate-y-0.5 ${isFull
+                                    ? 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
                                     : hasNotice
-                                        ? 'bg-amber-50 text-amber-950 border-amber-300 hover:bg-slate-950 hover:text-amber-300 hover:border-amber-400 hover:ring-2 hover:ring-amber-400/60 hover:shadow-lg'
-                                        : 'bg-emerald-50/80 text-emerald-950 border-emerald-300 hover:bg-slate-950 hover:text-cyan-300 hover:border-cyan-400 hover:ring-2 hover:ring-cyan-400/60 hover:shadow-lg'
+                                        ? 'bg-amber-50/70 text-amber-950 border-amber-200 hover:bg-amber-50 hover:border-amber-300'
+                                        : 'bg-emerald-50/60 text-emerald-950 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300'
                                     }`}
                             >
                                 <div className="flex items-center justify-between mb-1">
-                                    <span className="text-sm font-bold tracking-tight group-hover:scale-105 transition-transform">
+                                    <span className="text-sm font-bold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors">
                                         Room {room.roomNumber}
                                     </span>
-                                    <span className="text-[10px] uppercase font-bold opacity-80">
+                                    <span className="text-[10px] uppercase font-bold text-slate-500 bg-white/80 px-1.5 py-0.5 rounded border border-slate-200/60">
                                         Fl {room.floor}
                                     </span>
                                 </div>
 
-                                <div className="text-xs font-semibold opacity-90">
+                                <div className="text-xs font-semibold text-slate-800">
                                     ₹{room.rent.toLocaleString('en-IN')}/mo
                                 </div>
 
-                                <div className="text-[11px] mt-1.5 flex items-center justify-between opacity-80 pt-1.5 border-t border-current/20">
+                                <div className="text-[11px] mt-1.5 flex items-center justify-between text-slate-600 pt-1.5 border-t border-slate-200/60">
                                     <span>Occupancy</span>
-                                    <span className="font-bold">
+                                    <span className="font-bold text-slate-900">
                                         {room.occupied}/{room.capacity}
                                     </span>
                                 </div>
 
-                                {/* Terminal hover tooltip */}
+                                {/* Room hover tooltip */}
                                 {hoveredRoom === room.roomNumber && (
-                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2.5 bg-[#091426] text-white rounded-lg shadow-xl z-50 text-[11px] pointer-events-none text-left border border-cyan-500/40">
-                                        <div className="font-bold text-cyan-400 flex items-center justify-between">
-                                            <span>ROOM {room.roomNumber}</span>
-                                            <span className="text-[9px] text-cyan-200 bg-cyan-900/60 px-1 rounded">ENTER ↵</span>
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2.5 bg-slate-900 text-white rounded-lg shadow-xl z-50 text-[11px] pointer-events-none text-left border border-slate-700 animate-in fade-in zoom-in-95 duration-150">
+                                        <div className="font-bold text-white flex items-center justify-between pb-1 border-b border-slate-800">
+                                            <span>Room {room.roomNumber}</span>
+                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${isFull
+                                                ? 'bg-slate-800 text-slate-300'
+                                                : hasNotice
+                                                    ? 'bg-amber-900/80 text-amber-300'
+                                                    : 'bg-emerald-900/80 text-emerald-300'
+                                                }`}>
+                                                {isFull ? 'Full' : hasNotice ? 'Notice' : 'Available'}
+                                            </span>
                                         </div>
-                                        <div className="text-slate-300 text-[10px] mt-1">
-                                            Rent: ₹{room.rent.toLocaleString('en-IN')}/mo
+                                        <div className="text-slate-300 text-[10px] mt-1.5 flex items-center justify-between">
+                                            <span>Rent:</span>
+                                            <span className="font-semibold text-white">₹{room.rent.toLocaleString('en-IN')}/mo</span>
                                         </div>
-                                        <div className="text-slate-300 text-[10px]">
-                                            Occupancy: {room.occupied} of {room.capacity} occupied
+                                        <div className="text-slate-300 text-[10px] flex items-center justify-between">
+                                            <span>Occupancy:</span>
+                                            <span className="font-semibold text-white">{room.occupied} of {room.capacity} Beds</span>
                                         </div>
                                         {room.vacateDate && (
-                                            <div className="text-amber-400 text-[10px] font-semibold mt-0.5">
+                                            <div className="text-amber-400 text-[10px] font-semibold mt-1 pt-1 border-t border-slate-800">
                                                 Notice: Vacating {room.vacateDate}
                                             </div>
                                         )}
