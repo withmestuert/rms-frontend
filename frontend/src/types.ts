@@ -16,6 +16,7 @@ export interface Room {
     rent: number;
     capacity: number; // Can be 1, 2, 3, 4, 5, 6, etc.
     occupied: number;
+    propertyId?: number;
     status: 'available' | 'full' | 'vacate_notice';
     vacateDate?: string;
     vacatingResident?: string;
@@ -29,6 +30,7 @@ export interface Tenant {
     phone: string;
     email: string;
     roomNumber: string;
+    propertyId?: number;
     monthlyRent: number;
     joinedDate: string;
     hometown: string;
@@ -45,6 +47,7 @@ export interface Admission {
     phone: string;
     email?: string;
     roomNumber: string;
+    propertyId?: number;
     monthlyRent: number;
     moveInDate: string;
     hometown: string;
@@ -68,6 +71,7 @@ export interface Transaction {
     id: string;
     date: string;
     referenceNumber: string;
+    propertyId?: number;
     type: 'credit' | 'debit';
     accountHead: 'Rent Payment' | 'Security Deposit' | 'Maintenance Expense' | 'Utility Payment' | 'Vendor Payout';
     description: string;
@@ -82,6 +86,7 @@ export interface Invoice {
     invoiceNumber: string;
     tenantName: string;
     roomNumber: string;
+    propertyId?: number;
     monthYear: string;
     amount: number;
     dueDate: string;

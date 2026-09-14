@@ -42,21 +42,34 @@ export function App() {
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [properties, setProperties] = useState<Property[]>([]);
+    const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(apiService.getActivePropertyId());
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Load initial data from apiService
-    const loadData = async () => {
+    const loadData = async (propIdParam?: number | null) => {
         try {
-            const [actionsData, tenantsData, admissionsData, roomsData, txData, invoicesData, propertiesData, usersData] =
+            const propertiesData = await apiService.getProperties();
+            setProperties(propertiesData);
+
+            let effectivePropId = propIdParam !== undefined ? propIdParam : selectedPropertyId;
+            if (effectivePropId == null && propertiesData.length > 0) {
+                effectivePropId = propertiesData[0].id;
+            } else if (effectivePropId != null && !propertiesData.some(p => p.id === effectivePropId)) {
+                effectivePropId = propertiesData.length > 0 ? propertiesData[0].id : null;
+            }
+
+            apiService.setActivePropertyId(effectivePropId);
+            setSelectedPropertyId(effectivePropId);
+
+            const [actionsData, tenantsData, admissionsData, roomsData, txData, invoicesData, usersData] =
                 await Promise.all([
                     apiService.getCriticalActions(),
-                    apiService.getTenants(),
-                    apiService.getAdmissions(),
-                    apiService.getRooms(),
-                    apiService.getTransactions(),
-                    apiService.getInvoices(),
-                    apiService.getProperties(),
+                    apiService.getTenants(effectivePropId ?? undefined),
+                    apiService.getAdmissions(effectivePropId ?? undefined),
+                    apiService.getRooms(effectivePropId ?? undefined),
+                    apiService.getTransactions(undefined, effectivePropId ?? undefined),
+                    apiService.getInvoices(undefined, undefined, effectivePropId ?? undefined),
                     apiService.getUsers(),
                 ]);
 
@@ -66,7 +79,6 @@ export function App() {
             setRooms(roomsData);
             setTransactions(txData);
             setInvoices(invoicesData);
-            setProperties(propertiesData);
             setUsers(usersData);
         } catch (err) {
             console.error('Error loading RMS state:', err);
@@ -79,6 +91,12 @@ export function App() {
         loadData();
     }, []);
 
+    const handleSelectProperty = async (property: Property) => {
+        apiService.setActivePropertyId(property.id);
+        setSelectedPropertyId(property.id);
+        await loadData(property.id);
+    };
+
     const handleActionDismiss = async (id: string) => {
         await apiService.dismissCriticalAction(id);
         setCriticalActions(prev => prev.filter(a => a.id !== id));
@@ -87,6 +105,8 @@ export function App() {
     const handleAddTenant = async (tenantData: Omit<Tenant, 'id'>) => {
         const created = await apiService.addTenant(tenantData);
         setTenants(prev => [created, ...prev]);
+        const updatedRooms = await apiService.getRooms(selectedPropertyId ?? undefined);
+        setRooms(updatedRooms);
     };
 
     const handleCreateAdmission = async (
@@ -99,8 +119,8 @@ export function App() {
 
             const [updatedRooms, updatedTenants] =
                 await Promise.all([
-                    apiService.getRooms(),
-                    apiService.getTenants(),
+                    apiService.getRooms(selectedPropertyId ?? undefined),
+                    apiService.getTenants(selectedPropertyId ?? undefined),
                 ]);
 
             setRooms(updatedRooms);
@@ -122,7 +142,7 @@ export function App() {
         await apiService.createRoom(roomData);
 
         const updatedRooms =
-            await apiService.getRooms();
+            await apiService.getRooms(selectedPropertyId ?? undefined);
 
         setRooms(updatedRooms);
     };
@@ -204,6 +224,11 @@ export function App() {
     const handleCreateProperty = async (data: Omit<Property, 'id'>): Promise<Property> => {
         const created = await apiService.createProperty(data);
         setProperties(prev => [...prev, created]);
+        if (selectedPropertyId == null) {
+            apiService.setActivePropertyId(created.id);
+            setSelectedPropertyId(created.id);
+            await loadData(created.id);
+        }
         return created;
     };
 
@@ -216,6 +241,13 @@ export function App() {
     const handleDeleteProperty = async (id: number): Promise<void> => {
         await apiService.deleteProperty(id);
         setProperties(prev => prev.filter(p => p.id !== id));
+        if (selectedPropertyId === id) {
+            const remaining = properties.filter(p => p.id !== id);
+            const nextId = remaining.length > 0 ? remaining[0].id : null;
+            apiService.setActivePropertyId(nextId);
+            setSelectedPropertyId(nextId);
+            await loadData(nextId);
+        }
     };
 
     const handleCreateUser = async (data: Omit<User, 'id'>): Promise<User> => {
@@ -302,9 +334,15 @@ export function App() {
     };
 
     const handleResetData = async () => {
-        apiService.resetAllData();
-        await loadData();
-        alert('Project RMS data successfully reset to clean seed state.');
+        try {
+            await apiService.cleanDatabase();
+            await loadData();
+            alert('Project RMS data wiped cleanly from database and local storage.');
+        } catch {
+            apiService.resetAllData();
+            await loadData();
+            alert('Local storage data reset.');
+        }
     };
 
     if (loading) {
@@ -321,6 +359,9 @@ export function App() {
     return (
         <AppShell
             onQuickAdmission={() => handleNavigate('admissions')}
+            properties={properties}
+            selectedPropertyId={selectedPropertyId}
+            onSelectProperty={handleSelectProperty}
         >
             <Routes>
                 <Route

@@ -23,24 +23,30 @@ export interface ApiConfig {
 
 const STORAGE_KEYS = {
     CONFIG: 'rms_api_config',
+    ACTIVE_PROPERTY: 'rms_active_property_id',
     ACTIONS: 'rms_actions_v2',
     TRANSACTIONS: 'rms_transactions_v2',
     INVOICES: 'rms_invoices_v3',
 };
 
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
+const DEFAULT_USE_LIVE_BACKEND = import.meta.env.VITE_USE_LIVE_BACKEND !== 'false';
+const DEFAULT_SYNC_LATENCY_MS = Number(import.meta.env.VITE_SYNC_LATENCY_MS) || 12;
+
 class ApiService {
     private config: ApiConfig = {
-        baseUrl: 'http://localhost:8080/api',
-        useLiveBackend: true,
-        syncLatencyMs: 12,
+        baseUrl: DEFAULT_BASE_URL,
+        useLiveBackend: DEFAULT_USE_LIVE_BACKEND,
+        syncLatencyMs: DEFAULT_SYNC_LATENCY_MS,
     };
+    private activePropertyId: number | null = null;
 
     constructor() {
         this.loadConfig();
     }
 
     // ---------------------------------------------------------
-    // CONFIGURATION
+    // CONFIGURATION & ACTIVE PROPERTY
     // ---------------------------------------------------------
 
     private loadConfig(): void {
@@ -48,10 +54,20 @@ class ApiService {
             const saved = localStorage.getItem(STORAGE_KEYS.CONFIG);
 
             if (saved) {
+                const parsed = JSON.parse(saved);
                 this.config = {
-                    ...this.config,
-                    ...JSON.parse(saved),
+                    baseUrl: parsed.baseUrl || DEFAULT_BASE_URL,
+                    useLiveBackend: parsed.useLiveBackend !== undefined ? parsed.useLiveBackend : DEFAULT_USE_LIVE_BACKEND,
+                    syncLatencyMs: parsed.syncLatencyMs !== undefined ? parsed.syncLatencyMs : DEFAULT_SYNC_LATENCY_MS,
                 };
+            }
+
+            const savedPropId = localStorage.getItem(STORAGE_KEYS.ACTIVE_PROPERTY);
+            if (savedPropId) {
+                const parsed = Number(savedPropId);
+                if (!isNaN(parsed) && parsed > 0) {
+                    this.activePropertyId = parsed;
+                }
             }
         } catch {
             // Keep default configuration.
@@ -60,6 +76,19 @@ class ApiService {
 
     public getConfig(): ApiConfig {
         return { ...this.config };
+    }
+
+    public getDefaultConfig(): ApiConfig {
+        return {
+            baseUrl: DEFAULT_BASE_URL,
+            useLiveBackend: DEFAULT_USE_LIVE_BACKEND,
+            syncLatencyMs: DEFAULT_SYNC_LATENCY_MS,
+        };
+    }
+
+    public resetConfigToDefaults(): void {
+        this.config = this.getDefaultConfig();
+        localStorage.removeItem(STORAGE_KEYS.CONFIG);
     }
 
     public updateConfig(newConfig: Partial<ApiConfig>): void {
@@ -74,12 +103,36 @@ class ApiService {
         );
     }
 
+    public getActivePropertyId(): number | null {
+        return this.activePropertyId;
+    }
+
+    public setActivePropertyId(id: number | null): void {
+        this.activePropertyId = id;
+        if (id !== null) {
+            localStorage.setItem(STORAGE_KEYS.ACTIVE_PROPERTY, String(id));
+        } else {
+            localStorage.removeItem(STORAGE_KEYS.ACTIVE_PROPERTY);
+        }
+    }
+
     // ---------------------------------------------------------
     // COMMON HTTP HELPERS
     // ---------------------------------------------------------
 
     private getUrl(path: string): string {
         return `${this.config.baseUrl}${path}`;
+    }
+
+    private getHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            ...extraHeaders,
+        };
+        if (this.activePropertyId != null) {
+            headers['X-Property-Id'] = String(this.activePropertyId);
+        }
+        return headers;
     }
 
     private async parseResponse<T>(response: Response): Promise<T> {
@@ -131,6 +184,7 @@ class ApiService {
                     ? 'confirmed'
                     : 'confirmed',
             aadharNumber: item.aadhaarNo ?? '',
+            propertyId: item.propertyId,
         };
     }
 
@@ -159,6 +213,7 @@ class ApiService {
                     item.confirmedOn
                 ).toLocaleString('en-IN')
                 : undefined,
+            propertyId: item.propertyId,
         };
     }
 
@@ -220,9 +275,12 @@ class ApiService {
     // TENANTS (/api/tenants)
     // =========================================================
 
-    public async getTenants(): Promise<Tenant[]> {
+    public async getTenants(propertyId?: number): Promise<Tenant[]> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/tenants?propertyId=${propId}`) : this.getUrl('/tenants');
         const response = await fetch(
-            this.getUrl('/tenants')
+            url,
+            { headers: this.getHeaders() }
         );
 
         const data = await this.parseResponse<any[]>(response);
@@ -231,7 +289,8 @@ class ApiService {
 
     public async getTenantByUid(uid: string): Promise<Tenant> {
         const response = await fetch(
-            this.getUrl(`/tenants/${encodeURIComponent(uid)}`)
+            this.getUrl(`/tenants/${encodeURIComponent(uid)}`),
+            { headers: this.getHeaders() }
         );
 
         const item = await this.parseResponse<any>(response);
@@ -240,7 +299,8 @@ class ApiService {
 
     public async getTenantsByRoom(roomNo: string): Promise<Tenant[]> {
         const response = await fetch(
-            this.getUrl(`/tenants/room/${encodeURIComponent(roomNo)}`)
+            this.getUrl(`/tenants/room/${encodeURIComponent(roomNo)}`),
+            { headers: this.getHeaders() }
         );
 
         const data = await this.parseResponse<any[]>(response);
@@ -248,7 +308,7 @@ class ApiService {
     }
 
     public async addTenant(
-        tenant: Omit<Tenant, 'id'>
+        tenant: Omit<Tenant, 'id'> & { propertyId?: number }
     ): Promise<Tenant> {
         const requestBody = {
             name: tenant.name,
@@ -263,15 +323,14 @@ class ApiService {
             advancePaid: 0,
             standardRent: tenant.monthlyRent,
             roomNo: tenant.roomNumber,
+            propertyId: tenant.propertyId ?? this.activePropertyId ?? undefined,
         };
 
         const response = await fetch(
             this.getUrl('/tenants'),
             {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: this.getHeaders(),
                 body: JSON.stringify(requestBody),
             }
         );
@@ -298,15 +357,14 @@ class ApiService {
             advancePaid: 0,
             standardRent: tenantData.monthlyRent ?? 8000,
             roomNo: tenantData.roomNumber,
+            propertyId: tenantData.propertyId ?? this.activePropertyId ?? undefined,
         };
 
         const response = await fetch(
             this.getUrl(`/tenants/${encodeURIComponent(uid)}`),
             {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: this.getHeaders(),
                 body: JSON.stringify(requestBody),
             }
         );
@@ -320,6 +378,7 @@ class ApiService {
             this.getUrl(`/tenants/${encodeURIComponent(uid)}`),
             {
                 method: 'DELETE',
+                headers: this.getHeaders(),
             }
         );
 
@@ -330,9 +389,12 @@ class ApiService {
     // ADMISSIONS (/api/admissions)
     // =========================================================
 
-    public async getAdmissions(): Promise<Admission[]> {
+    public async getAdmissions(propertyId?: number): Promise<Admission[]> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/admissions?propertyId=${propId}`) : this.getUrl('/admissions');
         const response = await fetch(
-            this.getUrl('/admissions')
+            url,
+            { headers: this.getHeaders() }
         );
 
         const data = await this.parseResponse<any[]>(response);
@@ -341,7 +403,8 @@ class ApiService {
 
     public async getAdmissionByNumber(admissionNumber: string): Promise<Admission> {
         const response = await fetch(
-            this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}`)
+            this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}`),
+            { headers: this.getHeaders() }
         );
 
         const item = await this.parseResponse<any>(response);
@@ -352,7 +415,7 @@ class ApiService {
         admissionData: Omit<
             Admission,
             'id' | 'allocatedAt'
-        >
+        > & { propertyId?: number }
     ): Promise<Admission> {
         const requestBody = {
             tenantUid: null,
@@ -371,15 +434,14 @@ class ApiService {
             roomNo: admissionData.roomNumber,
             enrollmentDate: admissionData.moveInDate,
             remarks: null,
+            propertyId: admissionData.propertyId ?? this.activePropertyId ?? undefined,
         };
 
         const response = await fetch(
             this.getUrl('/admissions'),
             {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: this.getHeaders(),
                 body: JSON.stringify(requestBody),
             }
         );
@@ -393,9 +455,7 @@ class ApiService {
             this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}/confirm`),
             {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: this.getHeaders(),
             }
         );
 
@@ -408,6 +468,7 @@ class ApiService {
             this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}`),
             {
                 method: 'DELETE',
+                headers: this.getHeaders(),
             }
         );
 
@@ -418,10 +479,13 @@ class ApiService {
     // ROOMS (/api/rooms)
     // =========================================================
 
-    public async getRooms(): Promise<Room[]> {
+    public async getRooms(propertyId?: number): Promise<Room[]> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/rooms?propertyId=${propId}`) : this.getUrl('/rooms');
+
         const [roomsResponse, tenants] = await Promise.all([
-            fetch(this.getUrl('/rooms')),
-            this.getTenants().catch(() => [] as Tenant[]),
+            fetch(url, { headers: this.getHeaders() }),
+            this.getTenants(propId ?? undefined).catch(() => [] as Tenant[]),
         ]);
 
         const data = await this.parseResponse<any[]>(roomsResponse);
@@ -444,13 +508,15 @@ class ApiService {
                         ? 'full'
                         : 'available',
                 residents: residentNames.length > 0 ? residentNames : (item.residents ?? []),
+                propertyId: item.propertyId,
             };
         });
     }
 
     public async getRoomByRoomNo(roomNo: string): Promise<Room> {
         const response = await fetch(
-            this.getUrl(`/rooms/${encodeURIComponent(roomNo)}`)
+            this.getUrl(`/rooms/${encodeURIComponent(roomNo)}`),
+            { headers: this.getHeaders() }
         );
 
         const item = await this.parseResponse<any>(response);
@@ -471,6 +537,7 @@ class ApiService {
                     ? 'full'
                     : 'available',
             residents: residentNames.length > 0 ? residentNames : (item.residents ?? []),
+            propertyId: item.propertyId,
         };
     }
 
@@ -481,15 +548,19 @@ class ApiService {
         rentPerMonth: number;
         occupancy: number;
         available: boolean;
+        propertyId?: number;
     }): Promise<Room> {
+        const payload = {
+            ...roomData,
+            propertyId: roomData.propertyId ?? this.activePropertyId ?? undefined,
+        };
+
         const response = await fetch(
             this.getUrl('/rooms'),
             {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(roomData),
+                headers: this.getHeaders(),
+                body: JSON.stringify(payload),
             }
         );
 
@@ -507,6 +578,7 @@ class ApiService {
                     ? 'full'
                     : 'available',
             residents: item.residents ?? [],
+            propertyId: item.propertyId,
         };
     }
 
@@ -518,21 +590,23 @@ class ApiService {
             rentPerMonth: number;
             occupancy: number;
             available: boolean;
+            propertyId?: number;
         }
     ): Promise<Room> {
+        const payload = {
+            roomNo: roomNumber,
+            ...roomData,
+            propertyId: roomData.propertyId ?? this.activePropertyId ?? undefined,
+        };
+
         const response = await fetch(
             this.getUrl(
                 `/rooms/${encodeURIComponent(roomNumber)}`
             ),
             {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    roomNo: roomNumber,
-                    ...roomData,
-                }),
+                headers: this.getHeaders(),
+                body: JSON.stringify(payload),
             }
         );
 
@@ -550,6 +624,7 @@ class ApiService {
                     ? 'full'
                     : 'available',
             residents: item.residents ?? [],
+            propertyId: item.propertyId,
         };
     }
 
@@ -562,6 +637,7 @@ class ApiService {
             ),
             {
                 method: 'DELETE',
+                headers: this.getHeaders(),
             }
         );
 
@@ -591,10 +667,15 @@ class ApiService {
     // FINANCE & BILLING (/api/invoices, /api/ledger)
     // =========================================================
 
-    public async getTransactions(type?: string): Promise<Transaction[]> {
+    public async getTransactions(type?: string, propertyId?: number): Promise<Transaction[]> {
         try {
-            const url = this.getUrl('/ledger' + (type ? `?type=${encodeURIComponent(type.toUpperCase())}` : ''));
-            const response = await fetch(url);
+            const propId = propertyId ?? this.activePropertyId;
+            const params = new URLSearchParams();
+            if (type) params.append('type', type.toUpperCase());
+            if (propId) params.append('propertyId', String(propId));
+
+            const url = this.getUrl('/ledger' + (params.toString() ? `?${params.toString()}` : ''));
+            const response = await fetch(url, { headers: this.getHeaders() });
             const data = await this.parseResponse<any[]>(response);
             return data.map((item: any): Transaction => ({
                 id: String(item.id),
@@ -607,6 +688,7 @@ class ApiService {
                 amount: item.amount,
                 paymentMode: item.paymentMode,
                 runningBalance: item.runningBalance,
+                propertyId: item.propertyId,
             }));
         } catch (err) {
             console.warn('Backend ledger unavailable, falling back to local storage:', err);
@@ -614,14 +696,16 @@ class ApiService {
         }
     }
 
-    public async getInvoices(monthYear?: string, status?: string): Promise<Invoice[]> {
+    public async getInvoices(monthYear?: string, status?: string, propertyId?: number): Promise<Invoice[]> {
         try {
+            const propId = propertyId ?? this.activePropertyId;
             const params = new URLSearchParams();
             if (monthYear) params.append('monthYear', monthYear);
             if (status) params.append('status', status.toUpperCase());
+            if (propId) params.append('propertyId', String(propId));
 
             const url = this.getUrl('/invoices' + (params.toString() ? `?${params.toString()}` : ''));
-            const response = await fetch(url);
+            const response = await fetch(url, { headers: this.getHeaders() });
             const data = await this.parseResponse<any[]>(response);
             return data.map((item: any): Invoice => ({
                 id: String(item.id),
@@ -634,6 +718,7 @@ class ApiService {
                 status: (item.status || 'pending').toLowerCase() as any,
                 paidOn: item.paidOn,
                 paymentMode: item.paymentMode,
+                propertyId: item.propertyId,
             }));
         } catch (err) {
             console.warn('Backend invoices unavailable, falling back to local storage:', err);
@@ -644,7 +729,7 @@ class ApiService {
     public async generateCycleInvoices(monthYear: string, dueDate: string): Promise<any> {
         const response = await fetch(this.getUrl('/invoices/generate-cycle'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getHeaders(),
             body: JSON.stringify({ monthYear, dueDate }),
         });
         return this.parseResponse<any>(response);
@@ -659,7 +744,7 @@ class ApiService {
         try {
             const response = await fetch(this.getUrl(`/invoices/${encodeURIComponent(invoiceId)}/pay`), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getHeaders(),
                 body: JSON.stringify({
                     paymentMode,
                     transactionRef: transactionRef || undefined,
@@ -715,12 +800,12 @@ class ApiService {
 
     public async getLedgerBalance(): Promise<number> {
         try {
-            const response = await fetch(this.getUrl('/ledger/balance'));
+            const response = await fetch(this.getUrl('/ledger/balance'), { headers: this.getHeaders() });
             const data = await this.parseResponse<{ runningBalance: number }>(response);
             return data.runningBalance;
         } catch {
             const txns = await this.getTransactions();
-            return txns[0]?.runningBalance ?? 482150;
+            return txns[0]?.runningBalance ?? 0;
         }
     }
 
@@ -732,13 +817,15 @@ class ApiService {
         amount: number;
         paymentMode: string;
         date?: string;
+        propertyId?: number;
     }): Promise<Transaction> {
         const response = await fetch(this.getUrl('/ledger'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getHeaders(),
             body: JSON.stringify({
                 ...dto,
                 type: dto.type.toUpperCase(),
+                propertyId: dto.propertyId ?? this.activePropertyId ?? undefined,
             }),
         });
         const item = await this.parseResponse<any>(response);
@@ -753,6 +840,7 @@ class ApiService {
             amount: item.amount,
             paymentMode: item.paymentMode,
             runningBalance: item.runningBalance,
+            propertyId: item.propertyId,
         };
     }
 
@@ -773,6 +861,19 @@ class ApiService {
         localStorage.removeItem(STORAGE_KEYS.ACTIONS);
         localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
         localStorage.removeItem(STORAGE_KEYS.INVOICES);
+    }
+
+    /**
+     * Wipes all backend database mock/transactional records and clears local storage.
+     */
+    public async cleanDatabase(): Promise<{ status: string; message: string; timestamp: string }> {
+        const response = await fetch(this.getUrl('/system/clean-database'), {
+            method: 'POST',
+            headers: this.getHeaders(),
+        });
+        const result = await this.parseResponse<{ status: string; message: string; timestamp: string }>(response);
+        await this.clearMockData();
+        return result;
     }
 
     // =========================================================

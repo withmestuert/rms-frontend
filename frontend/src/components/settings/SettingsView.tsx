@@ -275,14 +275,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </button>
                 <button
                     onClick={() => {
-                        if (confirm('Reset demo state back to seed data?')) {
+                        if (confirm('Wipe all mock and test records from the database and local storage to start clean?')) {
                             onResetData();
                         }
                     }}
-                    className="h-9 px-3.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                    className="h-9 px-3.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                    title="Wipes transactional mock data from PostgreSQL database so you can manually test"
                 >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Reset Data</span>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clean All Mock Data</span>
                 </button>
             </div>
 

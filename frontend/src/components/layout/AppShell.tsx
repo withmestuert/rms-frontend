@@ -33,11 +33,17 @@ import { DesignSpecModal } from '../common/DesignSpecModal';
 interface AppShellProps {
     children: React.ReactNode;
     onQuickAdmission: () => void;
+    properties?: Property[];
+    selectedPropertyId?: number | null;
+    onSelectProperty?: (property: Property) => void;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
     children,
     onQuickAdmission,
+    properties: propsList,
+    selectedPropertyId,
+    onSelectProperty,
 }) => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -48,8 +54,10 @@ export const AppShell: React.FC<AppShellProps> = ({
     const [selectedProperty, setSelectedProperty] = useState('');
     const [isPropertyDropdownOpen, setIsPropertyDropdownOpen] = useState(false);
     const [showNotificationToast, setShowNotificationToast] = useState(false);
-    const [properties, setProperties] = useState<Property[]>([]);
+    const [internalProperties, setInternalProperties] = useState<Property[]>([]);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+    const properties = propsList && propsList.length > 0 ? propsList : internalProperties;
 
     // Sidebar Collapse (Desktop) & Mobile Drawer Overlay State
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -101,14 +109,13 @@ export const AppShell: React.FC<AppShellProps> = ({
 
     // Load properties and current user from backend on mount
     useEffect(() => {
-        apiService.getProperties()
-            .then(props => {
-                setProperties(props);
-                if (props.length > 0) {
-                    setSelectedProperty(prev => prev || props[0].name);
-                }
-            })
-            .catch(() => setProperties([]));
+        if (!propsList || propsList.length === 0) {
+            apiService.getProperties()
+                .then(props => {
+                    setInternalProperties(props);
+                })
+                .catch(() => setInternalProperties([]));
+        }
 
         apiService.getUsers()
             .then(users => {
@@ -116,9 +123,16 @@ export const AppShell: React.FC<AppShellProps> = ({
                 setCurrentUser(active);
             })
             .catch(() => setCurrentUser(null));
-    }, []);
+    }, [propsList]);
 
-    const propertyNames = properties.map(p => p.name);
+    useEffect(() => {
+        if (properties.length > 0) {
+            const active = properties.find(p => p.id === selectedPropertyId) || properties[0];
+            setSelectedProperty(active.name);
+        } else {
+            setSelectedProperty('');
+        }
+    }, [properties, selectedPropertyId]);
 
     /*
      * Breadcrumb title is now derived from the current URL.
@@ -299,28 +313,30 @@ export const AppShell: React.FC<AppShellProps> = ({
                             {isPropertyDropdownOpen && (
                                 <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
 
-                                    {propertyNames.length === 0 ? (
+                                    {properties.length === 0 ? (
                                         <div className="px-3 py-3 text-xs text-slate-400 italic text-center">
                                             No PG connected — check backend
                                         </div>
-                                    ) : propertyNames.map(p => (
+                                    ) : properties.map(p => (
                                         <button
-                                            key={p}
+                                            key={p.id}
                                             onClick={() => {
-                                                setSelectedProperty(p);
+                                                setSelectedProperty(p.name);
                                                 setIsPropertyDropdownOpen(false);
                                                 setIsMobileSidebarOpen(false);
+                                                onSelectProperty?.(p);
                                             }}
-                                            className={`w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 flex items-center justify-between ${selectedProperty === p
-                                                ? 'text-blue-600 font-semibold bg-blue-50/50'
-                                                : 'text-slate-700'
+                                            className={`w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 flex items-center justify-between ${
+                                                selectedProperty === p.name || selectedPropertyId === p.id
+                                                    ? 'text-blue-600 font-semibold bg-blue-50/50'
+                                                    : 'text-slate-700'
                                                 }`}
                                         >
                                             <span className="truncate">
-                                                {p}
+                                                {p.name}
                                             </span>
 
-                                            {selectedProperty === p && (
+                                            {(selectedProperty === p.name || selectedPropertyId === p.id) && (
                                                 <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                                             )}
                                         </button>
