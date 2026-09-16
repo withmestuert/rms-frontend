@@ -19,7 +19,7 @@ import {
     Edit2,
 } from 'lucide-react';
 import { Tenant, PageId } from '../../types';
-import { formatAadharDisplay } from '../../utils/formatters';
+import { formatAadharDisplay, cleanAadharForDB } from '../../utils/formatters';
 
 interface TenantsViewProps {
     tenants: Tenant[];
@@ -58,6 +58,8 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
     const [editCategory, setEditCategory] = useState<'working' | 'student'>('working');
     const [editProfession, setEditProfession] = useState('');
     const [editRent, setEditRent] = useState<number>(8000);
+    const [editAadhar, setEditAadhar] = useState('');
+    const [showAadharEdit, setShowAadharEdit] = useState(false);
     const [isUpdatingTenant, setIsUpdatingTenant] = useState(false);
 
     const selectedTenant = tenants.find(t => t.id === selectedTenantId) || tenants[0];
@@ -69,6 +71,8 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
         setEditCategory(t.category === 'student' ? 'student' : 'working');
         setEditProfession(t.profession || 'Working');
         setEditRent(t.monthlyRent || 8000);
+        setEditAadhar(t.aadharNumber || '');
+        setShowAadharEdit(false);
         setIsEditModalOpen(true);
     };
 
@@ -84,6 +88,7 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                 category: editCategory,
                 profession: editProfession.trim(),
                 monthlyRent: Number(editRent),
+                aadharNumber: (editAadhar || selectedTenant.aadharNumber || '').trim(),
             });
             setIsEditModalOpen(false);
         } catch (err: any) {
@@ -660,6 +665,59 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                             />
                         </div>
                     </div>
+
+                    {/* Aadhaar Number section (hidden by default, revealed on explicit request) */}
+                    {!showAadharEdit ? (
+                        <div className="flex items-center justify-between pt-1">
+                            <button
+                                type="button"
+                                onClick={() => setShowAadharEdit(true)}
+                                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5 transition-colors py-1"
+                            >
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                <span>Change Aadhaar Number</span>
+                            </button>
+                            <span className="text-[11px] text-slate-400 font-mono">
+                                Aadhaar: {formatAadharDisplay(editAadhar || selectedTenant?.aadharNumber || '')}
+                            </span>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col gap-1.5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl animate-in fade-in">
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                                    <span>Aadhaar Number (Optional Edit)</span>
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowAadharEdit(false);
+                                        setEditAadhar(selectedTenant?.aadharNumber || '');
+                                    }}
+                                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                                >
+                                    Cancel / Hide
+                                </button>
+                            </div>
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={formatAadharDisplay(editAadhar)}
+                                    onChange={e => setEditAadhar(cleanAadharForDB(e.target.value))}
+                                    placeholder="xxxx xxxx xxxx"
+                                    maxLength={14}
+                                    className="w-full h-9 px-3 bg-white border border-slate-200 rounded-lg text-xs font-mono font-semibold tracking-wider text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                />
+                                {editAadhar.length === 12 && (
+                                    <span className="absolute right-2.5 top-2 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        <span>OK</span>
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     <div className="p-5 -mx-5 -mb-5 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
                         <button

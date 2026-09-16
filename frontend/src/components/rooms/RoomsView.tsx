@@ -243,7 +243,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                         <div className="text-3xl font-bold text-[#091426] tracking-tight tabular-nums font-display">
                             {totalRooms}
                         </div>
-                        <div className="text-xs text-slate-500 mt-1">Configured inventory units</div>
+                        {/*<div className="text-xs text-slate-500 mt-1">Configured inventory units</div>*/}
                     </div>
                     <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
                         <span>Building Status</span>
@@ -260,7 +260,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                         <div className="text-3xl font-bold text-emerald-700 tracking-tight tabular-nums font-display">
                             {availableRooms}
                         </div>
-                        <div className="text-xs text-emerald-600 mt-1">Rooms with open capacity</div>
+                        {/* <div className="text-xs text-emerald-600 mt-1">Rooms with open capacity</div> */}
                     </div>
                     <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
                         <span className="text-slate-500">Ready for check-in</span>
@@ -277,7 +277,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                         <div className="text-3xl font-bold text-[#091426] tracking-tight tabular-nums font-display">
                             {totalOccupied}
                         </div>
-                        <div className="text-xs text-slate-500 mt-1">Residents living currently</div>
+                        {/* <div className="text-xs text-slate-500 mt-1">Residents living currently</div> */}
                     </div>
                     <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
                         <span>Capacity</span>
@@ -294,7 +294,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                         <div className="text-3xl font-bold text-blue-700 tracking-tight tabular-nums font-display">
                             {totalVacant}
                         </div>
-                        <div className="text-xs text-blue-600 mt-1">Open spots ready to allocate</div>
+                        {/* <div className="text-xs text-blue-600 mt-1">Open spots ready to allocate</div> */}
                     </div>
                     <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
                         <span className="text-slate-500">Vacate Notice</span>

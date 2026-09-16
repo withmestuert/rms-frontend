@@ -13,9 +13,12 @@ import {
     X,
     CreditCard,
     Receipt,
+    History,
+    AlertCircle,
 } from 'lucide-react';
 import { Admission, Room, PageId } from '../../types';
 import { formatAadharDisplay, cleanAadharForDB } from '../../utils/formatters';
+import { apiService } from '../../services/apiService';
 
 interface AdmissionsViewProps {
     admissions: Admission[];
@@ -61,6 +64,41 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
     );
     const [isSuccess, setIsSuccess] = useState(false);
     const [isCapacityModalOpen, setIsCapacityModalOpen] = useState(false);
+
+    // Returning resident detection states
+    const [returningResident, setReturningResident] = useState<{
+        tenantName: string;
+        lastStayFrom: string;
+        lastStayTo: string;
+        hasActiveStay: boolean;
+        activeRoomNo?: string | null;
+        tenantType?: string | null;
+        organizationName?: string | null;
+    } | null>(null);
+    const [guidanceMessage, setGuidanceMessage] = useState<string | null>(null);
+    const [highlightFields, setHighlightFields] = useState<boolean>(false);
+    const [isCheckingResident, setIsCheckingResident] = useState<boolean>(false);
+
+    const formatDateDMY = (dateStr?: string | null): string => {
+        if (!dateStr) return 'N/A';
+        try {
+            const parts = dateStr.split('T')[0].split('-');
+            if (parts.length === 3) {
+                const [y, m, d] = parts;
+                return `${d}/${m}/${y}`;
+            }
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) {
+                const day = String(d.getDate()).padStart(2, '0');
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const year = d.getFullYear();
+                return `${day}/${month}/${year}`;
+            }
+        } catch {
+            // fallback
+        }
+        return dateStr;
+    };
 
     // Floor-wise grouped rooms for the capacity modal
     const floorGroups = useMemo(() => {
@@ -124,16 +162,21 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
     const handleAadharChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const rawDigits = cleanAadharForDB(e.target.value);
         setAadharNumber(rawDigits);
+        if (guidanceMessage || highlightFields) {
+            setGuidanceMessage(null);
+            setHighlightFields(false);
+        }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-
-        if (!residentName.trim() || !selectedRoomNumber) {
-            alert('Please provide the resident name and select a room.');
-            return;
+    const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setPhone(e.target.value);
+        if (guidanceMessage || highlightFields) {
+            setGuidanceMessage(null);
+            setHighlightFields(false);
         }
+    };
 
+    const submitAdmission = async () => {
         try {
             await onCreateAdmission({
                 residentName: residentName.trim(),
@@ -152,6 +195,8 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
             });
 
             setIsSuccess(true);
+            setGuidanceMessage(null);
+            setHighlightFields(false);
 
             setTimeout(() => {
                 setIsSuccess(false);
@@ -161,10 +206,69 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                 setAadharNumber('');
                 setHometown('');
             }, 2500);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Admission submission failed:', err);
-            alert('Failed to create admission. Please check the backend and try again.');
+            const msg = err?.message || 'Failed to create admission. Please check the backend and try again.';
+            alert(msg);
         }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        if (!residentName.trim() || !selectedRoomNumber) {
+            alert('Please provide the resident name and select a room.');
+            return;
+        }
+
+        // 1. Check if resident already exists / has previous stay history
+        setIsCheckingResident(true);
+        try {
+            const check = await apiService.checkExistingTenant(aadharNumber, phone);
+            if (check && check.exists) {
+                // If resident currently has an active stay in a room
+                if (check.hasActiveStay) {
+                    setGuidanceMessage(
+                        `Resident "${check.tenantName || residentName}" is currently residing in Room ${check.activeRoomNo || 'N/A'}. A resident cannot have multiple active stays simultaneously.`
+                    );
+                    setHighlightFields(true);
+                    setIsCheckingResident(false);
+                    return;
+                }
+
+                // Resident stayed previously and has vacated! Prompt user for new stay
+                setReturningResident({
+                    tenantName: check.tenantName || residentName,
+                    lastStayFrom: formatDateDMY(check.lastStayFrom),
+                    lastStayTo: formatDateDMY(check.lastStayTo),
+                    hasActiveStay: false,
+                    tenantType: check.tenantType,
+                    organizationName: check.organizationName,
+                });
+                setIsCheckingResident(false);
+                return;
+            }
+        } catch (checkErr) {
+            console.warn('Existing resident check error:', checkErr);
+        } finally {
+            setIsCheckingResident(false);
+        }
+
+        // 2. New resident, submit directly
+        await submitAdmission();
+    };
+
+    const handleConfirmNewStay = async () => {
+        setReturningResident(null);
+        setGuidanceMessage(null);
+        setHighlightFields(false);
+        await submitAdmission();
+    };
+
+    const handleCancelNewStay = () => {
+        setReturningResident(null);
+        setGuidanceMessage("Please check the new user's mobile number and Aadhaar number before admitting.");
+        setHighlightFields(true);
     };
 
     return (
@@ -203,6 +307,25 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                         </div>
                     )}
 
+                    {guidanceMessage && (
+                        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-xs text-amber-900 animate-in fade-in shadow-xs">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <div className="flex-1 font-semibold leading-relaxed">
+                                {guidanceMessage}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setGuidanceMessage(null);
+                                    setHighlightFields(false);
+                                }}
+                                className="text-amber-600 hover:text-amber-800 p-0.5 rounded transition-colors"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    )}
+
                     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {/* Resident Full Name */}
@@ -230,9 +353,13 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                 <input
                                     type="tel"
                                     value={phone}
-                                    onChange={e => setPhone(e.target.value)}
+                                    onChange={handlePhoneChange}
                                     placeholder="e.g. +91 98450 12891"
-                                    className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                                    className={`h-9 px-3 border rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none transition-all ${
+                                        highlightFields
+                                            ? 'bg-amber-50/50 border-amber-400 ring-2 ring-amber-300'
+                                            : 'bg-slate-50 border-slate-200 focus:ring-1 focus:ring-blue-500'
+                                    }`}
                                 />
                             </div>
                         </div>
@@ -262,7 +389,11 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                         }}
                                         placeholder="xxxx xxxx xxxx"
                                         maxLength={14}
-                                        className="h-9 w-full px-3 font-mono font-semibold tracking-wider bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                                        className={`h-9 w-full px-3 font-mono font-semibold tracking-wider border rounded-lg text-xs text-slate-900 placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 focus:bg-white focus:outline-none transition-all ${
+                                            highlightFields
+                                                ? 'bg-amber-50/50 border-amber-400 ring-2 ring-amber-300'
+                                                : 'bg-slate-50 border-slate-200 focus:ring-1 focus:ring-blue-500'
+                                        }`}
                                     />
                                     {aadharNumber.length === 12 && (
                                         <span className="absolute right-2.5 top-2 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
@@ -513,7 +644,9 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
 
             {/* Pending Advance Verification Banner */}
             {(() => {
-                const pendingAdmissions = admissions.filter(a => a.status === 'pending');
+                const pendingAdmissions = admissions.filter(
+                    a => a.status === 'pending' && (!a.tenantStatus || a.tenantStatus.toUpperCase() !== 'INACTIVE')
+                );
                 if (pendingAdmissions.length === 0) return null;
                 return (
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col gap-3">
@@ -610,6 +743,14 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                                 <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                                                 <span>PAID (Active)</span>
                                             </span>
+                                        ) : adm.status === 'vacated' || adm.tenantStatus?.toUpperCase() === 'INACTIVE' ? (
+                                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200/80">
+                                                <span>VACATED</span>
+                                            </span>
+                                        ) : adm.status === 'cancelled' ? (
+                                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                                                <span>CANCELLED</span>
+                                            </span>
                                         ) : (
                                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
                                                 <span>PENDING</span>
@@ -617,7 +758,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                         )}
                                     </td>
                                     <td className="py-3 px-3 text-right">
-                                        {adm.status !== 'confirmed' ? (
+                                        {adm.status === 'pending' && (!adm.tenantStatus || adm.tenantStatus.toUpperCase() !== 'INACTIVE') ? (
                                             <div className="inline-flex items-center gap-1.5 justify-end">
                                                 {onConfirmAdmission && (
                                                     <button
@@ -646,7 +787,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                                 )}
                                             </div>
                                         ) : (
-                                            <span className="text-[11px] text-slate-400 font-mono">Enrolled</span>
+                                            <span className="text-[11px] text-slate-400">—</span>
                                         )}
                                     </td>
                                 </tr>
@@ -977,6 +1118,96 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                             >
                                 Close
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Returning Resident Confirmation Modal */}
+            {returningResident && (
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-200">
+                        {/* Modal Header */}
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 text-white flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white">
+                                    <History className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold leading-tight">Returning Resident Detected</h3>
+                                    <p className="text-xs text-blue-100 mt-0.5">Existing resident profile found</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleCancelNewStay}
+                                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-6 flex flex-col gap-4">
+                            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-1.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Resident Details</span>
+                                    <span className="text-[11px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                        {returningResident.tenantType || 'Resident'}
+                                    </span>
+                                </div>
+                                <div className="text-base font-bold text-slate-900">
+                                    {returningResident.tenantName}
+                                </div>
+                                {returningResident.organizationName && (
+                                    <div className="text-xs text-slate-600 flex items-center gap-1.5">
+                                        <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>{returningResident.organizationName}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="p-4 bg-blue-50/90 border border-blue-200 rounded-xl flex flex-col gap-2.5">
+                                <div className="text-xs text-blue-950 font-medium leading-relaxed">
+                                    This tenant has already stayed here from{' '}
+                                    <span className="font-bold text-blue-900 bg-blue-100/80 px-1.5 py-0.5 rounded">
+                                        {returningResident.lastStayFrom}
+                                    </span>{' '}
+                                    to{' '}
+                                    <span className="font-bold text-blue-900 bg-blue-100/80 px-1.5 py-0.5 rounded">
+                                        {returningResident.lastStayTo}
+                                    </span>.
+                                </div>
+                                <div className="text-xs text-blue-950 font-semibold leading-relaxed">
+                                    Do you want to add a new stay for the same client starting from{' '}
+                                    <span className="font-bold text-indigo-700 underline">
+                                        {formatDateDMY(moveInDate)}
+                                    </span>?
+                                </div>
+                            </div>
+
+                            <p className="text-[11px] text-slate-500 italic">
+                                * Historical stay records, invoices, and ledger data for this resident will remain intact.
+                            </p>
+
+                            {/* Modal Actions */}
+                            <div className="flex items-center justify-end gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={handleCancelNewStay}
+                                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                                >
+                                    No, Check Details
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleConfirmNewStay}
+                                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5"
+                                >
+                                    <UserPlus className="w-4 h-4" />
+                                    <span>Yes, Add New Stay</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

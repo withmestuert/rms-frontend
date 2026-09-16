@@ -87,6 +87,59 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         return rentSummary.records.filter(r => r.status === 'pending' || r.status === 'overdue');
     }, [rentSummary, statusFilter]);
 
+    // --- 3. Recent Enrolled Tenants with Active Status & Real-time Room Rent ---
+    const recentEnrolledTenants = useMemo(() => {
+        const activeTenants = (tenants || []).filter(
+            t => t.status !== 'vacated' && t.status !== 'inactive'
+        );
+
+        if (activeTenants.length > 0) {
+            return activeTenants.map(t => {
+                const matchingAdm = (admissions || []).find(
+                    a =>
+                        (a.phone && a.phone === t.phone) ||
+                        (a.residentName && a.residentName.toLowerCase() === t.name.toLowerCase()) ||
+                        (a.roomNumber === t.roomNumber && (a as any).status !== 'VACATED')
+                );
+                return {
+                    id: t.id,
+                    residentName: t.name,
+                    phone: t.phone,
+                    roomNumber: t.roomNumber,
+                    monthlyRent: t.monthlyRent,
+                    moveInDate: matchingAdm?.moveInDate || t.joinedDate || 'Active Resident',
+                    status: t.status === 'notice' ? 'Notice' : 'Active',
+                    paymentStatus: t.paymentStatus === 'verified' ? 'Advance Paid' : 'Auto-Verified',
+                };
+            });
+        }
+
+        // Fallback: active admissions
+        return (admissions || [])
+            .filter(a => {
+                const s = (a.status || '').toUpperCase();
+                return s !== 'VACATED' && s !== 'CANCELLED';
+            })
+            .map(a => {
+                const matchingTenant = (tenants || []).find(
+                    t =>
+                        (t.phone && t.phone === a.phone) ||
+                        (t.name && t.name.toLowerCase() === a.residentName.toLowerCase()) ||
+                        t.roomNumber === a.roomNumber
+                );
+                return {
+                    id: a.id,
+                    residentName: a.residentName,
+                    phone: a.phone,
+                    roomNumber: a.roomNumber,
+                    monthlyRent: matchingTenant?.monthlyRent ?? a.monthlyRent,
+                    moveInDate: a.moveInDate || 'Active Resident',
+                    status: 'Active',
+                    paymentStatus: 'Auto-Verified',
+                };
+            });
+    }, [tenants, admissions]);
+
     // Handle marking rent as paid directly differentiating Cash and UPI
     const handleQuickMarkAsPaid = async (record: MonthTenantPaymentStatus, mode: 'UPI' | 'Cash') => {
         if (!onRecordPayment) return;
@@ -156,9 +209,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     Tenant Rent Collection Status
                                 </h2>
                             </div>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                                Real-time realization of resident rents, payment modes, and previous month records.
-                            </p>
                         </div>
 
                         {/* Dropdown for Month Selection (Current & Previous Months) */}
@@ -192,7 +242,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="flex flex-col gap-1.5">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                Monthly Rent Realization ({selectedMonth})
+                                Monthly Rent ({selectedMonth})
                             </span>
                             <div className="flex items-baseline gap-2">
                                 <span className="text-3xl font-extrabold text-[#091426] tracking-tight tabular-nums font-display">
@@ -446,11 +496,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-                        <span>
-                            Showing {filteredRentRecords.length} of {rentSummary.totalTenants} tenant records for{' '}
-                            <strong className="text-slate-800">{selectedMonth}</strong>
-                        </span>
+                    <div className="flex items-center justify-end text-[11px] text-slate-500 pt-1 border-t border-slate-100">
                         <button
                             onClick={() => onNavigate('rent-and-billing')}
                             className="text-blue-600 font-semibold hover:underline flex items-center gap-1"
@@ -546,9 +592,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <h2 className="text-sm font-bold text-[#091426]">
                                 Rooms Availability
                             </h2>
-                            <p className="text-xs text-slate-500">
-                                Live status of rooms, current occupancy, and vacancies across all floors
-                            </p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4 text-xs">
@@ -669,49 +712,64 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 <th className="py-2.5 px-3">Room Assigned</th>
                                 <th className="py-2.5 px-3 font-mono text-right">Rent</th>
                                 <th className="py-2.5 px-3">Move-In</th>
+                                <th className="py-2.5 px-3">Status</th>
                                 <th className="py-2.5 px-3">Payment</th>
                                 <th className="py-2.5 px-3 text-right">Action</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs">
-                            {admissions.map(item => (
-                                <tr
-                                    key={item.id}
-                                    onClick={() => onNavigate('tenants')}
-                                    className="hover:bg-slate-50/80 transition-colors cursor-pointer"
-                                >
-                                    <td className="py-3 px-3">
-                                        <div className="font-semibold text-slate-900">{item.residentName}</div>
-                                        <div className="font-mono text-[10px] text-slate-400">{item.phone}</div>
-                                    </td>
-                                    <td className="py-3 px-3 font-bold text-slate-800">
-                                        Room {item.roomNumber}
-                                    </td>
-                                    <td className="py-3 px-3 font-mono font-bold text-slate-900 text-right">
-                                        ₹{item.monthlyRent.toLocaleString('en-IN')}/mo
-                                    </td>
-                                    <td className="py-3 px-3 font-mono text-slate-600 text-[11px]">
-                                        {item.moveInDate}
-                                    </td>
-                                    <td className="py-3 px-3">
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                            <span>Auto-Verified</span>
-                                        </span>
-                                    </td>
-                                    <td className="py-3 px-3 text-right">
-                                        <button
-                                            onClick={e => {
-                                                e.stopPropagation();
-                                                onNavigate('tenants');
-                                            }}
-                                            className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-900 rounded"
-                                        >
-                                            <Eye className="w-4 h-4" />
-                                        </button>
+                            {recentEnrolledTenants.length === 0 ? (
+                                <tr>
+                                    <td colSpan={7} className="text-center py-8 text-slate-400">
+                                        No active tenant enrollments found.
                                     </td>
                                 </tr>
-                            ))}
+                            ) : (
+                                recentEnrolledTenants.map(item => (
+                                    <tr
+                                        key={item.id}
+                                        onClick={() => onNavigate('tenants')}
+                                        className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                                    >
+                                        <td className="py-3 px-3">
+                                            <div className="font-semibold text-slate-900">{item.residentName}</div>
+                                            <div className="font-mono text-[10px] text-slate-400">{item.phone}</div>
+                                        </td>
+                                        <td className="py-3 px-3 font-bold text-slate-800">
+                                            Room {item.roomNumber}
+                                        </td>
+                                        <td className="py-3 px-3 font-mono font-bold text-slate-900 text-right">
+                                            ₹{item.monthlyRent.toLocaleString('en-IN')}/mo
+                                        </td>
+                                        <td className="py-3 px-3 font-mono text-slate-600 text-[11px]">
+                                            {item.moveInDate}
+                                        </td>
+                                        <td className="py-3 px-3">
+                                            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2 py-0.5 rounded-full">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                <span>{item.status}</span>
+                                            </span>
+                                        </td>
+                                        <td className="py-3 px-3">
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">
+                                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                                <span>{item.paymentStatus}</span>
+                                            </span>
+                                        </td>
+                                        <td className="py-3 px-3 text-right">
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    onNavigate('tenants');
+                                                }}
+                                                className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-900 rounded"
+                                            >
+                                                <Eye className="w-4 h-4" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
                 </div>

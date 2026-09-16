@@ -29,7 +29,8 @@ const STORAGE_KEYS = {
     INVOICES: 'rms_invoices_v3',
 };
 
-const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
+const DEFAULT_BASE_URL = rawBaseUrl.trim().replace(/\/+$/, '');
 const DEFAULT_USE_LIVE_BACKEND = import.meta.env.VITE_USE_LIVE_BACKEND !== 'false';
 const DEFAULT_SYNC_LATENCY_MS = Number(import.meta.env.VITE_SYNC_LATENCY_MS) || 12;
 
@@ -55,8 +56,9 @@ class ApiService {
 
             if (saved) {
                 const parsed = JSON.parse(saved);
+                const savedUrl = (parsed.baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
                 this.config = {
-                    baseUrl: parsed.baseUrl || DEFAULT_BASE_URL,
+                    baseUrl: savedUrl,
                     useLiveBackend: parsed.useLiveBackend !== undefined ? parsed.useLiveBackend : DEFAULT_USE_LIVE_BACKEND,
                     syncLatencyMs: parsed.syncLatencyMs !== undefined ? parsed.syncLatencyMs : DEFAULT_SYNC_LATENCY_MS,
                 };
@@ -180,8 +182,14 @@ class ApiService {
                     ? 'verified'
                     : 'pending',
             status:
-                item.status === 'ACTIVE' || item.status === 'confirmed'
+                !item.status || item.status === 'ACTIVE' || item.status === 'confirmed'
                     ? 'confirmed'
+                    : item.status.toString().toUpperCase() === 'NOTICE'
+                    ? 'notice'
+                    : item.status.toString().toUpperCase() === 'PENDING'
+                    ? 'pending'
+                    : item.status.toString().toUpperCase() === 'INACTIVE' || item.status.toString().toUpperCase() === 'VACATED'
+                    ? 'vacated'
                     : 'confirmed',
             aadharNumber: item.aadhaarNo ?? '',
             propertyId: item.propertyId,
@@ -205,9 +213,14 @@ class ApiService {
                     : 'working',
             aadharNumber: item.aadhaarNo,
             status:
-                item.status === 'PAID'
+                item.status === 'PAID' || item.status === 'CONFIRMED'
                     ? 'confirmed'
+                    : item.status === 'VACATED'
+                    ? 'vacated'
+                    : item.status === 'CANCELLED'
+                    ? 'cancelled'
                     : 'pending',
+            tenantStatus: item.tenantStatus,
             allocatedAt: item.confirmedOn
                 ? new Date(
                     item.confirmedOn
@@ -483,18 +496,32 @@ class ApiService {
         const propId = propertyId ?? this.activePropertyId;
         const url = propId ? this.getUrl(`/rooms?propertyId=${propId}`) : this.getUrl('/rooms');
 
-        const [roomsResponse, tenants] = await Promise.all([
-            fetch(url, { headers: this.getHeaders() }),
-            this.getTenants(propId ?? undefined).catch(() => [] as Tenant[]),
-        ]);
+        let tenants: Tenant[] | null = null;
+        try {
+            tenants = await this.getTenants(propId ?? undefined);
+        } catch {
+            tenants = null;
+        }
 
+        const roomsResponse = await fetch(url, { headers: this.getHeaders() });
         const data = await this.parseResponse<any[]>(roomsResponse);
 
         return data.map((item): Room => {
-            const roomTenants = tenants.filter(t => t.roomNumber === item.roomNo);
-            const residentNames = roomTenants.map(t => t.name);
             const capacity = item.occupancy ?? 0;
-            const currentOccupancy = item.currentOccupancy ?? roomTenants.length;
+            let currentOccupancy = item.currentOccupancy ?? 0;
+            let residentNames: string[] = item.residents ?? [];
+
+            if (tenants !== null) {
+                const roomTenants = tenants.filter(t => {
+                    const status = (t.status || '').toLowerCase();
+                    const isActive = status !== 'vacated' && status !== 'inactive' && status !== 'cancelled';
+                    const matchesRoom = Boolean(t.roomNumber && item.roomNo) &&
+                        String(t.roomNumber).trim().toLowerCase() === String(item.roomNo).trim().toLowerCase();
+                    return isActive && matchesRoom;
+                });
+                residentNames = roomTenants.map(t => t.name);
+                currentOccupancy = roomTenants.length;
+            }
 
             return {
                 roomNumber: item.roomNo,
@@ -507,7 +534,7 @@ class ApiService {
                     currentOccupancy >= capacity
                         ? 'full'
                         : 'available',
-                residents: residentNames.length > 0 ? residentNames : (item.residents ?? []),
+                residents: residentNames,
                 propertyId: item.propertyId,
             };
         });
@@ -520,10 +547,25 @@ class ApiService {
         );
 
         const item = await this.parseResponse<any>(response);
-        const tenantsInRoom = await this.getTenantsByRoom(roomNo).catch(() => [] as Tenant[]);
-        const residentNames = tenantsInRoom.map(t => t.name);
+        let tenantsInRoom: Tenant[] | null = null;
+        try {
+            tenantsInRoom = await this.getTenantsByRoom(roomNo);
+        } catch {
+            tenantsInRoom = null;
+        }
+
         const capacity = item.occupancy ?? 0;
-        const currentOccupancy = item.currentOccupancy ?? residentNames.length;
+        let currentOccupancy = item.currentOccupancy ?? 0;
+        let residentNames: string[] = item.residents ?? [];
+
+        if (tenantsInRoom !== null) {
+            const activeTenants = tenantsInRoom.filter(t => {
+                const status = (t.status || '').toLowerCase();
+                return status !== 'vacated' && status !== 'inactive' && status !== 'cancelled';
+            });
+            residentNames = activeTenants.map(t => t.name);
+            currentOccupancy = activeTenants.length;
+        }
 
         return {
             roomNumber: item.roomNo,
@@ -536,7 +578,7 @@ class ApiService {
                 currentOccupancy >= capacity
                     ? 'full'
                     : 'available',
-            residents: residentNames.length > 0 ? residentNames : (item.residents ?? []),
+            residents: residentNames,
             propertyId: item.propertyId,
         };
     }
@@ -944,7 +986,7 @@ class ApiService {
     public async updateProperty(id: number, propertyData: Partial<Property>): Promise<Property> {
         const response = await fetch(this.getUrl(`/properties/${id}`), {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: this.getHeaders(),
             body: JSON.stringify(propertyData),
         });
         const p = await this.parseResponse<any>(response);

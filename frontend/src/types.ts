@@ -38,7 +38,7 @@ export interface Tenant {
     category: 'working' | 'student' | 'other';
     aadharNumber?: string; // 12-digit continuous varchar in DB e.g. "548921049382"
     paymentStatus?: 'verified' | 'pending';
-    status: 'confirmed' | 'notice' | 'pending';
+    status: 'confirmed' | 'notice' | 'pending' | 'vacated' | 'inactive';
 }
 
 export interface Admission {
@@ -54,7 +54,8 @@ export interface Admission {
     profession?: string;
     category?: 'working' | 'student' | 'other';
     aadharNumber?: string; // 12-digit continuous varchar in DB e.g. "548921049382"
-    status: 'confirmed' | 'pending';
+    status: 'confirmed' | 'pending' | 'vacated' | 'cancelled';
+    tenantStatus?: string;
     allocatedAt?: string;
 }
 

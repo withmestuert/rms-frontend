@@ -244,7 +244,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                                     setIsSidebarCollapsed(false)
                                 }
                                 className="w-8 h-8 rounded-lg bg-[#091426] flex items-center justify-center text-white shadow-xs shrink-0 cursor-pointer"
-                                title="Project RMS"
+                                title="PG Manager"
                             >
                                 <Building2 className="w-4 h-4 text-blue-400" />
                             </div>
@@ -256,7 +256,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                                     }`}
                             >
                                 <span className="font-bold text-base text-[#091426] leading-none font-display">
-                                    Project RMS
+                                    PG Manager
                                 </span>
 
                                 <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mt-0.5">
@@ -636,22 +636,20 @@ export const AppShell: React.FC<AppShellProps> = ({
                         }`}
                 >
 
-                    {/* User badge */}
+                    {/* User Profile (Static) */}
                     <div
-                        className={`flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100 ${isSidebarCollapsed
+                        className={`flex items-center p-2 bg-slate-50 rounded-lg border border-slate-100 ${isSidebarCollapsed
                             ? 'md:p-1 md:bg-transparent md:border-none md:justify-center'
                             : ''
                             }`}
                     >
                         <div className="flex items-center gap-2.5 overflow-hidden">
-
                             <div
-                                className="w-8 h-8 rounded-full bg-[#091426] text-white flex items-center justify-center font-bold text-xs shrink-0 cursor-pointer"
-                                title={currentUser ? `${currentUser.fullName} • ${currentUser.role.replace(/_/g, ' ')}` : 'Project RMS'}
+                                className="w-8 h-8 rounded-full bg-[#091426] text-white flex items-center justify-center font-bold text-xs shrink-0 select-none"
                             >
                                 {currentUser
                                     ? currentUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-                                    : 'RMS'}
+                                    : 'RS'}
                             </div>
 
                             <div
@@ -661,7 +659,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                                     }`}
                             >
                                 <span className="text-xs font-semibold text-slate-900 truncate">
-                                    {currentUser?.fullName ?? 'Project RMS'}
+                                    {currentUser?.fullName ?? 'Rajesh Sharma'}
                                 </span>
 
                                 <span className="text-[11px] text-slate-500 truncate">
@@ -671,43 +669,6 @@ export const AppShell: React.FC<AppShellProps> = ({
                                 </span>
                             </div>
                         </div>
-
-                        <button
-                            onClick={() => {
-                                setIsDesignSpecOpen(true);
-                                setIsMobileSidebarOpen(false);
-                            }}
-                            title="View Design System & REST Spec"
-                            className={`text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-200/50 ${isSidebarCollapsed
-                                ? 'md:hidden'
-                                : 'block'
-                                }`}
-                        >
-                            <FileCode className="w-4 h-4" />
-                        </button>
-                    </div>
-
-                    {/* System connection indicator */}
-                    <div
-                        className={`px-2 py-1 flex items-center gap-1.5 text-[11px] font-mono text-slate-500 ${isSidebarCollapsed
-                            ? 'md:justify-center md:px-0'
-                            : ''
-                            }`}
-                    >
-                        <span
-                            className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"
-                            title="PostgreSQL Connected"
-                        />
-
-                        <span
-                            className={
-                                isSidebarCollapsed
-                                    ? 'md:hidden'
-                                    : 'inline'
-                            }
-                        >
-                            API Online â€¢ PostgreSQL
-                        </span>
                     </div>
                 </div>
             </aside>
@@ -729,7 +690,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                         }`}
                 >
 
-                    {/* Left: Hamburger + Desktop Toggle + Breadcrumbs & Search */}
+                    {/* Left: Mobile Trigger & Sidebar Collapse / Expand Toggle */}
                     <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
 
                         {/* Mobile Hamburger Trigger */}
@@ -763,90 +724,10 @@ export const AppShell: React.FC<AppShellProps> = ({
                                 <PanelLeftClose className="w-4 h-4" />
                             )}
                         </button>
-
-                        {/* Breadcrumbs */}
-                        <div className="flex items-center gap-1.5 text-xs text-slate-500 truncate">
-
-                            <span
-                                onClick={() =>
-                                    handleNavigate('/dashboard')
-                                }
-                                className="hover:text-blue-600 cursor-pointer font-medium hidden sm:inline"
-                            >
-                                RMS
-                            </span>
-
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-300 hidden sm:inline" />
-
-                            <span className="hover:text-blue-600 cursor-pointer hidden md:inline">
-                                Operations
-                            </span>
-
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-300 hidden md:inline" />
-
-                            <span className="text-slate-900 font-semibold truncate max-w-[140px] sm:max-w-none">
-                                {getBreadcrumbTitle()}
-                            </span>
-                        </div>
-
-                        {/* Universal Search Input */}
-                        <div className="relative hidden lg:flex items-center">
-
-                            <Search className="w-4 h-4 absolute left-3 text-slate-400 pointer-events-none" />
-
-                            <input
-                                type="text"
-                                value={searchQuery}
-                                onChange={e =>
-                                    setSearchQuery(e.target.value)
-                                }
-                                onClick={() =>
-                                    setIsSearchModalOpen(true)
-                                }
-                                placeholder="Search residents, beds, rooms..."
-                                className="w-64 xl:w-72 h-8 pl-9 pr-14 bg-slate-100/90 rounded-lg text-xs text-slate-800 placeholder:text-slate-400 border border-transparent focus:border-slate-300 focus:bg-white focus:outline-none transition-all"
-                            />
-
-                            <span className="absolute right-2.5 font-mono text-[10px] text-slate-500 bg-slate-200/80 px-1.5 py-0.5 rounded font-semibold pointer-events-none">
-                                Ctrl + K
-                            </span>
-                        </div>
                     </div>
 
-                    {/* Right: Actions & Profile */}
-                    <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-
-                        {/* Design Spec */}
-                        <button
-                            onClick={() =>
-                                setIsDesignSpecOpen(true)
-                            }
-                            className="h-8 px-2 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                            title="View UI/UX Specification & Spring Boot REST Contracts"
-                        >
-                            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-
-                            <span className="hidden xl:inline">
-                                Design Spec &amp; Prompt
-                            </span>
-                        </button>
-
-                        {/* Quick Admission CTA */}
-                        <button
-                            id="quick-admission-btn"
-                            onClick={handleQuickAdmission}
-                            className="h-8 px-2.5 sm:px-3 bg-[#1e293b] hover:bg-[#091426] text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
-                        >
-                            <Plus className="w-4 h-4" />
-
-                            <span className="hidden sm:inline">
-                                New Admission
-                            </span>
-
-                            <span className="sm:hidden">
-                                Admission
-                            </span>
-                        </button>
+                    {/* Right: Notification & Profile */}
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
 
                         {/* Notifications */}
                         <div className="relative">

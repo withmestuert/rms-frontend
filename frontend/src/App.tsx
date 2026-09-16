@@ -45,10 +45,12 @@ export function App() {
     const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(apiService.getActivePropertyId());
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
+    const [backendError, setBackendError] = useState<string | null>(null);
 
     // Load initial data from apiService
     const loadData = async (propIdParam?: number | null) => {
         try {
+            setBackendError(null);
             const propertiesData = await apiService.getProperties();
             setProperties(propertiesData);
 
@@ -80,8 +82,9 @@ export function App() {
             setTransactions(txData);
             setInvoices(invoicesData);
             setUsers(usersData);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error loading RMS state:', err);
+            setBackendError(err?.message || 'Failed to fetch from backend server');
         } finally {
             setLoading(false);
         }
@@ -218,6 +221,20 @@ export function App() {
     const handleUpdateTenant = async (uid: string, tenantData: Partial<Tenant>): Promise<Tenant> => {
         const updated = await apiService.updateTenant(uid, tenantData);
         setTenants(prev => prev.map(t => (t.id === uid ? updated : t)));
+        setAdmissions(prev =>
+            prev.map(a => {
+                if (a.phone === updated.phone || a.residentName?.toLowerCase() === updated.name?.toLowerCase()) {
+                    return {
+                        ...a,
+                        residentName: updated.name,
+                        phone: updated.phone,
+                        roomNumber: updated.roomNumber,
+                        monthlyRent: updated.monthlyRent,
+                    };
+                }
+                return a;
+            })
+        );
         return updated;
     };
 
@@ -363,6 +380,20 @@ export function App() {
             selectedPropertyId={selectedPropertyId}
             onSelectProperty={handleSelectProperty}
         >
+            {backendError && (
+                <div className="mb-4 bg-amber-50 border border-amber-200/90 rounded-xl p-3.5 text-xs text-amber-900 flex items-center justify-between shadow-xs animate-in fade-in duration-150">
+                    <div className="flex items-center gap-2">
+                        <span className="font-bold text-amber-800">Backend Server Offline:</span>
+                        <span>Cannot reach REST API at <code className="bg-amber-100/80 px-1.5 py-0.5 rounded font-mono font-semibold">{apiService.getConfig().baseUrl}</code>. Please start the Spring Boot server (<code className="bg-amber-100/80 px-1.5 py-0.5 rounded font-mono">.\mvnw spring-boot:run</code>).</span>
+                    </div>
+                    <button
+                        onClick={() => loadData()}
+                        className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg transition-colors text-[11px] shrink-0 ml-3"
+                    >
+                        Retry Connection
+                    </button>
+                </div>
+            )}
             <Routes>
                 <Route
                     path="/"
