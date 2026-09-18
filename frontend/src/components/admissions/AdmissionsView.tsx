@@ -48,6 +48,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
 
     const [residentName, setResidentName] = useState('');
     const [phone, setPhone] = useState('');
+    const [parentNumber, setParentNumber] = useState('');
     const [email, setEmail] = useState('');
     const [aadharNumber, setAadharNumber] = useState('');
     const [hometown, setHometown] = useState('');
@@ -74,6 +75,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
         activeRoomNo?: string | null;
         tenantType?: string | null;
         organizationName?: string | null;
+        parentContact?: string | null;
     } | null>(null);
     const [guidanceMessage, setGuidanceMessage] = useState<string | null>(null);
     const [highlightFields, setHighlightFields] = useState<boolean>(false);
@@ -185,6 +187,8 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                     email.trim() ||
                     `${residentName.toLowerCase().replace(/\s+/g, '')}@example.com`,
                 aadharNumber: aadharNumber || '548921049382',
+                parentContact: parentNumber.trim() || undefined,
+                parentNumber: parentNumber.trim() || undefined,
                 hometown: hometown.trim() || 'Bangalore',
                 profession: profession.trim() || 'Professional',
                 category,
@@ -202,6 +206,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                 setIsSuccess(false);
                 setResidentName('');
                 setPhone('');
+                setParentNumber('');
                 setEmail('');
                 setAadharNumber('');
                 setHometown('');
@@ -244,6 +249,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                     hasActiveStay: false,
                     tenantType: check.tenantType,
                     organizationName: check.organizationName,
+                    parentContact: check.parentContact,
                 });
                 setIsCheckingResident(false);
                 return;
@@ -259,6 +265,9 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
     };
 
     const handleConfirmNewStay = async () => {
+        if (returningResident?.parentContact && !parentNumber) {
+            setParentNumber(returningResident.parentContact);
+        }
         setReturningResident(null);
         setGuidanceMessage(null);
         setHighlightFields(false);
@@ -423,11 +432,36 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {/* Parent Contact Number (Optional) */}
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">
+                                        <Phone className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>Parent Contact Number</span>
+                                    </span>
+                                    <span className="text-[11px] font-normal text-slate-400 font-sans">
+                                        (Optional)
+                                    </span>
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={parentNumber}
+                                    onChange={e => setParentNumber(e.target.value)}
+                                    placeholder="e.g. +91 98450 99887"
+                                    className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                                />
+                            </div>
+
                             {/* Email */}
                             <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                                    <Mail className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Email Address</span>
+                                <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5">
+                                        <Mail className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>Email Address</span>
+                                    </span>
+                                    <span className="text-[11px] font-normal text-slate-400 font-sans">
+                                        (Optional)
+                                    </span>
                                 </label>
                                 <input
                                     type="email"
@@ -437,7 +471,9 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                     className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                                 />
                             </div>
+                        </div>
 
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {/* Move-in Date */}
                             <div className="flex flex-col gap-1.5">
                                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
@@ -451,30 +487,30 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                     className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                                 />
                             </div>
-                        </div>
 
-                        <div className="flex flex-col gap-1.5">
                             {/* Profession & Category */}
-                            <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                                <Briefcase className="w-3.5 h-3.5 text-slate-400" />
-                                <span>Profession &amp; Employment Category</span>
-                            </label>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <input
-                                    type="text"
-                                    value={profession}
-                                    onChange={e => setProfession(e.target.value)}
-                                    placeholder="e.g. Software Engineer"
-                                    className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                                />
-                                <select
-                                    value={category}
-                                    onChange={e => setCategory(e.target.value as 'working' | 'other')}
-                                    className="h-9 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                                >
-                                    <option value="working">Working Professional</option>
-                                    <option value="other">Student / Other</option>
-                                </select>
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                                    <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Profession &amp; Category</span>
+                                </label>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <input
+                                        type="text"
+                                        value={profession}
+                                        onChange={e => setProfession(e.target.value)}
+                                        placeholder="e.g. Software Engineer"
+                                        className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                                    />
+                                    <select
+                                        value={category}
+                                        onChange={e => setCategory(e.target.value as 'working' | 'other')}
+                                        className="h-9 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                                    >
+                                        <option value="working">Working</option>
+                                        <option value="other">Student / Other</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
@@ -547,6 +583,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                 onClick={() => {
                                     setResidentName('');
                                     setPhone('');
+                                    setParentNumber('');
                                     setEmail('');
                                     setHometown('');
                                 }}

@@ -7,6 +7,7 @@ import {
     Invoice,
     Property,
     User,
+    TenantStayCheckResult,
 } from '../types';
 
 import {
@@ -192,6 +193,8 @@ class ApiService {
                     ? 'vacated'
                     : 'confirmed',
             aadharNumber: item.aadhaarNo ?? '',
+            parentContact: item.parentContact ?? '',
+            parentNumber: item.parentContact ?? '',
             propertyId: item.propertyId,
         };
     }
@@ -202,6 +205,8 @@ class ApiService {
             residentName: item.tenantName,
             phone: item.mobileNumber,
             email: item.email ?? '',
+            parentContact: item.parentContact ?? '',
+            parentNumber: item.parentContact ?? '',
             roomNumber: item.roomNo,
             monthlyRent: item.roomRent ?? 0,
             moveInDate: item.enrollmentDate,
@@ -332,7 +337,7 @@ class ApiService {
                     ? 'WORKING'
                     : 'STUDENT',
             organizationName: tenant.profession || '',
-            parentContact: null,
+            parentContact: tenant.parentContact || tenant.parentNumber || null,
             advancePaid: 0,
             standardRent: tenant.monthlyRent,
             roomNo: tenant.roomNumber,
@@ -366,7 +371,7 @@ class ApiService {
                     ? 'WORKING'
                     : 'STUDENT',
             organizationName: tenantData.profession || 'Working',
-            parentContact: null,
+            parentContact: tenantData.parentContact || tenantData.parentNumber || null,
             advancePaid: 0,
             standardRent: tenantData.monthlyRent ?? 8000,
             roomNo: tenantData.roomNumber,
@@ -441,7 +446,7 @@ class ApiService {
                     : 'STUDENT',
             organizationName:
                 admissionData.profession || '',
-            parentContact: null,
+            parentContact: admissionData.parentContact || admissionData.parentNumber || null,
             advancePaid: 0,
             standardRent: admissionData.monthlyRent,
             roomNo: admissionData.roomNumber,
@@ -486,6 +491,28 @@ class ApiService {
         );
 
         await this.parseResponse<string>(response);
+    }
+
+    public async checkExistingTenant(
+        aadhaarNo?: string,
+        mobileNumber?: string
+    ): Promise<TenantStayCheckResult> {
+        const params = new URLSearchParams();
+        if (aadhaarNo && aadhaarNo.trim()) {
+            params.append('aadhaarNo', aadhaarNo.trim());
+        }
+        if (mobileNumber && mobileNumber.trim()) {
+            params.append('mobileNumber', mobileNumber.trim());
+        }
+
+        const query = params.toString();
+        const url = this.getUrl(`/admissions/check-existing${query ? `?${query}` : ''}`);
+
+        const response = await fetch(url, {
+            headers: this.getHeaders(),
+        });
+
+        return await this.parseResponse<TenantStayCheckResult>(response);
     }
 
     // =========================================================

@@ -37,6 +37,8 @@ export interface Tenant {
     profession: string;
     category: 'working' | 'student' | 'other';
     aadharNumber?: string; // 12-digit continuous varchar in DB e.g. "548921049382"
+    parentContact?: string;
+    parentNumber?: string;
     paymentStatus?: 'verified' | 'pending';
     status: 'confirmed' | 'notice' | 'pending' | 'vacated' | 'inactive';
 }
@@ -46,6 +48,8 @@ export interface Admission {
     residentName: string;
     phone: string;
     email?: string;
+    parentContact?: string;
+    parentNumber?: string;
     roomNumber: string;
     propertyId?: number;
     monthlyRent: number;
@@ -57,6 +61,24 @@ export interface Admission {
     status: 'confirmed' | 'pending' | 'vacated' | 'cancelled';
     tenantStatus?: string;
     allocatedAt?: string;
+}
+
+export interface TenantStayCheckResult {
+    exists: boolean;
+    hasActiveStay: boolean;
+    activeRoomNo?: string;
+    tenantUid?: string;
+    tenantName?: string;
+    aadhaarNo?: string;
+    mobileNumber?: string;
+    tenantType?: string;
+    organizationName?: string;
+    parentContact?: string;
+    standardRent?: number;
+    advancePaid?: number;
+    lastStayFrom?: string;
+    lastStayTo?: string;
+    totalPreviousStays?: number;
 }
 
 export interface CriticalAction {
