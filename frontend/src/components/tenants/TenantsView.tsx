@@ -18,8 +18,9 @@ import {
     Trash2,
     Edit2,
 } from 'lucide-react';
-import { Tenant, PageId } from '../../types';
+import { Tenant, PageId, WhatsAppPackage } from '../../types';
 import { formatAadharDisplay, cleanAadharForDB } from '../../utils/formatters';
+import { WhatsAppQuickShareModal } from '../common/WhatsAppQuickShareModal';
 
 interface TenantsViewProps {
     tenants: Tenant[];
@@ -61,8 +62,62 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
     const [editAadhar, setEditAadhar] = useState('');
     const [showAadharEdit, setShowAadharEdit] = useState(false);
     const [isUpdatingTenant, setIsUpdatingTenant] = useState(false);
+    const [whatsAppPkg, setWhatsAppPkg] = useState<WhatsAppPackage | null>(null);
+    const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
 
     const selectedTenant = tenants.find(t => t.id === selectedTenantId) || tenants[0];
+
+    const openWhatsAppShare = (t: Tenant) => {
+        const cleanPhone = (t.phone || '').replace(/[^0-9]/g, '');
+        const effectivePhone = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
+        const receiptNo = 'REC-ADV-' + Math.floor(10000 + Math.random() * 90000);
+        const baseUrl = window.location.origin;
+        const vacateFormUrl = `${baseUrl}/vacate-form.html?tid=${encodeURIComponent(t.id)}&room=${encodeURIComponent(t.roomNumber)}&name=${encodeURIComponent(t.name)}&mobile=${encodeURIComponent(t.phone)}&aadhaar=${encodeURIComponent(cleanAadharForDB(t.aadharNumber || ''))}&advance=${t.monthlyRent}`;
+        const payRentUrl = `${baseUrl}/?page=rent-and-billing&tid=${encodeURIComponent(t.id)}`;
+        const upiPayLink = `upi://pay?pa=rmsmanager@okhdfcbank&pn=RMS&am=${t.monthlyRent}`;
+
+        const msg = `🏨 *WELCOME TO YOUR RESIDENCE!*\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `Dear *${t.name}*,\n\n` +
+            `Here are your official residence details and quick service links for *Room ${t.roomNumber}*:\n\n` +
+            `📋 *Resident Profile:*\n` +
+            `• *Resident Name:* ${t.name}\n` +
+            `• *Tenant ID (TID):* \`${t.id}\`\n` +
+            `• *Room Number:* ${t.roomNumber}\n` +
+            `• *Contact Mobile:* ${t.phone}\n` +
+            `• *Aadhaar Number:* ${t.aadharNumber ? formatAadharDisplay(t.aadharNumber) : 'Verified'}\n\n` +
+            `🧾 *Invoice & Advance Deposit Details:*\n` +
+            `• *Receipt No:* ${receiptNo}\n` +
+            `• *Advance Deposit:* ₹${(t.monthlyRent || 10000).toLocaleString('en-IN')}\n` +
+            `• *Monthly Standard Rent:* ₹${t.monthlyRent.toLocaleString('en-IN')}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `⚡ *QUICK ACTIONS & SERVICES:*\n\n` +
+            `💳 *1. Pay Monthly Rent:*\n` +
+            `👉 ${payRentUrl}\n\n` +
+            `🚪 *2. Vacate Request Form:*\n` +
+            `When planning to move out, submit your 30-day notice form directly:\n` +
+            `👉 ${vacateFormUrl}\n\n` +
+            `ℹ️ *Advance Refund Policy:*\n` +
+            `• Notice ≥ 30 days: Full advance repayable (minus maintenance/breakage charges).\n` +
+            `• Notice < 30 days: Pro-rated refund = (Advance / 30) × Notice Days.`;
+
+        const whatsappUrl = `https://wa.me/${effectivePhone}?text=${encodeURIComponent(msg)}`;
+
+        const pkg: WhatsAppPackage = {
+            tenantUid: t.id,
+            tenantName: t.name,
+            phone: effectivePhone,
+            message: msg,
+            whatsappUrl,
+            vacateFormUrl,
+            payRentUrl,
+            upiPayLink,
+            receiptNumber: receiptNo,
+        };
+
+        setWhatsAppPkg(pkg);
+        setIsWhatsAppModalOpen(true);
+    };
 
     const openEditModal = (t: Tenant) => {
         setEditName(t.name);
@@ -420,6 +475,16 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                             </button>
                         )}
 
+                        {/* WhatsApp Quick Links & Vacate Notice Action */}
+                        <button
+                            type="button"
+                            onClick={() => openWhatsAppShare(selectedTenant)}
+                            className="w-full py-2.5 bg-[#075e54] hover:bg-[#064942] text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors shadow-2xs"
+                        >
+                            <MessageSquare className="w-4 h-4 text-emerald-300" />
+                            <span>WhatsApp Quick Links & Vacate Notice</span>
+                        </button>
+
                         {/* Contact Action Buttons */}
                         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
                             <a
@@ -740,6 +805,13 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
             </div>
         </div>
     )}
+
+    {/* WhatsApp Business Quick Share Modal */}
+    <WhatsAppQuickShareModal
+        isOpen={isWhatsAppModalOpen}
+        onClose={() => setIsWhatsAppModalOpen(false)}
+        pkg={whatsAppPkg}
+    />
 </div>
     );
 };

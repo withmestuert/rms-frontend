@@ -159,3 +159,39 @@ export interface TenantPaymentRecord {
     notes?: string;
 }
 
+export interface VacateRequest {
+    id: number;
+    requestId: string;
+    tenantUid?: string;
+    tenantName: string;
+    roomNo: string;
+    mobileNumber: string;
+    aadhaarNo?: string;
+    propertyId?: number;
+    requestDate: string;
+    expectedLeavingDate: string;
+    noticeDays: number;
+    advancePaid: number;
+    maintenanceCharge: number;
+    breakageCharge: number;
+    advanceRepayable: number;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'CANCELLED';
+    reason?: string;
+    notes?: string;
+    calculationBreakdown?: string;
+    createdAt: string;
+    updatedAt?: string;
+}
+
+export interface WhatsAppPackage {
+    tenantUid: string;
+    tenantName: string;
+    phone: string;
+    message: string;
+    whatsappUrl: string;
+    vacateFormUrl: string;
+    payRentUrl: string;
+    upiPayLink: string;
+    receiptNumber: string;
+}
+

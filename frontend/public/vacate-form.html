@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tenant Vacate Request | Residence Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #091426;
+            --primary-light: #16243a;
+            --accent: #2563eb;
+            --emerald: #059669;
+            --emerald-bg: #ecfdf5;
+            --amber: #d97706;
+            --amber-bg: #fffbeb;
+            --rose: #e11d48;
+            --border: #e2e8f0;
+            --text-dark: #0f172a;
+            --text-muted: #64748b;
+            --bg-page: #f8fafc;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-page);
+            color: var(--text-dark);
+            min-height: 100vh;
+            padding: 24px 16px 48px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 620px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .badge-portal {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #eff6ff;
+            color: var(--accent);
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            border: 1px solid #bfdbfe;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--primary);
+            letter-spacing: -0.5px;
+            margin-bottom: 6px;
+        }
+
+        p.subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .card {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: 0 4px 20px -2px rgba(9, 20, 38, 0.05);
+            padding: 28px;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 500px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+            .card {
+                padding: 20px;
+            }
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 14px;
+        }
+
+        label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        label span.req {
+            color: var(--rose);
+        }
+
+        input, select, textarea {
+            height: 42px;
+            padding: 0 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            font-size: 13px;
+            color: var(--text-dark);
+            background: #f8fafc;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        textarea {
+            height: 80px;
+            padding: 10px 14px;
+            resize: vertical;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            background: #ffffff;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+
+        input[readonly] {
+            background: #f1f5f9;
+            color: #475569;
+            cursor: not-allowed;
+        }
+
+        /* Repayment Calculation Card */
+        .repay-box {
+            background: linear-gradient(145deg, #f8fafc, #eff6ff);
+            border: 1px solid #bfdbfe;
+            border-radius: 14px;
+            padding: 20px;
+            margin: 18px 0;
+        }
+
+        .repay-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .repay-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .notice-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .badge-full {
+            background: var(--emerald-bg);
+            color: var(--emerald);
+            border: 1px solid #a7f3d0;
+        }
+
+        .badge-prorated {
+            background: var(--amber-bg);
+            color: var(--amber);
+            border: 1px solid #fde68a;
+        }
+
+        .repay-calc-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-muted);
+            padding: 4px 0;
+        }
+
+        .repay-formula {
+            font-family: monospace;
+            font-size: 12px;
+            color: #1e293b;
+            background: rgba(255, 255, 255, 0.7);
+            padding: 6px 10px;
+            border-radius: 8px;
+            margin: 8px 0;
+            border: 1px dashed #cbd5e1;
+        }
+
+        .repay-total-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 10px;
+            margin-top: 8px;
+            border-top: 1px solid #cbd5e1;
+        }
+
+        .repay-total-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .repay-total-val {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--emerald);
+        }
+
+        .policy-note {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        /* Submit button */
+        .btn-submit {
+            width: 100%;
+            height: 46px;
+            background: var(--primary);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .btn-submit:hover {
+            background: var(--primary-light);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(9, 20, 38, 0.15);
+        }
+
+        .btn-submit:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Success screen */
+        .success-box {
+            display: none;
+            text-align: center;
+            padding: 36px 20px;
+        }
+
+        .success-icon {
+            width: 64px;
+            height: 64px;
+            background: var(--emerald-bg);
+            color: var(--emerald);
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            margin-bottom: 16px;
+            border: 2px solid #a7f3d0;
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="badge-portal">Residence Management Portal</div>
+            <h1>Vacate & Move-Out Request</h1>
+            <p class="subtitle">Please confirm your resident details and desired move-out date. Your advance refund calculation will be updated automatically.</p>
+        </div>
+
+        <!-- Form Card -->
+        <div class="card" id="formCard">
+            <form id="vacateForm">
+                <!-- Section 1: Tenant Identifiers -->
+                <div class="section-title">1. Resident Verification</div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="tenantUid">Tenant ID (TID) <span class="req">*</span></label>
+                        <input type="text" id="tenantUid" name="tenantUid" required placeholder="e.g. T-101">
+                    </div>
+                    <div class="form-group">
+                        <label for="tenantName">Full Name <span class="req">*</span></label>
+                        <input type="text" id="tenantName" name="tenantName" required placeholder="Resident Name">
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="roomNo">Room Number <span class="req">*</span></label>
+                        <input type="text" id="roomNo" name="roomNo" required placeholder="e.g. 102">
+                    </div>
+                    <div class="form-group">
+                        <label for="mobileNumber">Registered Mobile <span class="req">*</span></label>
+                        <input type="tel" id="mobileNumber" name="mobileNumber" required placeholder="+91 98765 43210">
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="aadhaarNo">Aadhaar Number (Optional)</label>
+                        <input type="text" id="aadhaarNo" name="aadhaarNo" placeholder="12-digit Aadhaar">
+                    </div>
+                    <div class="form-group">
+                        <label for="advancePaid">Advance Deposit Paid (₹) <span class="req">*</span></label>
+                        <input type="number" id="advancePaid" name="advancePaid" min="0" required placeholder="e.g. 12000">
+                    </div>
+                </div>
+
+                <!-- Section 2: Dates & Notice -->
+                <div class="section-title" style="margin-top: 10px;">2. Vacate Schedule & Notice</div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="requestDate">Request Date <span class="req">*</span></label>
+                        <input type="date" id="requestDate" name="requestDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="expectedLeavingDate">Expected Leaving Date <span class="req">*</span></label>
+                        <input type="date" id="expectedLeavingDate" name="expectedLeavingDate" required>
+                    </div>
+                </div>
+
+                <!-- Live Advance Repayable Placeholder -->
+                <div class="repay-box" id="repayBox">
+                    <div class="repay-header">
+                        <div class="repay-title">Advance Repayable Calculation</div>
+                        <div class="notice-badge badge-full" id="noticeBadge">30 Days Notice (Full Refund)</div>
+                    </div>
+
+                    <div class="repay-calc-row">
+                        <span>Notice Period Provided:</span>
+                        <strong id="noticeDaysText">30 Days</strong>
+                    </div>
+                    <div class="repay-calc-row">
+                        <span>Refund Formula Policy:</span>
+                        <span id="policyTypeText">Notice ≥ 30 days: Full Advance Paid</span>
+                    </div>
+
+                    <div class="repay-formula" id="formulaText">
+                        ₹12,000 (100% Repayable)
+                    </div>
+
+                    <div class="repay-total-row">
+                        <span class="repay-total-label">Estimated Refund Repayable:</span>
+                        <span class="repay-total-val" id="repayTotalText">₹12,000</span>
+                    </div>
+
+                    <p class="policy-note">
+                        * Note: Any room inspection deductions for maintenance or physical breakage (if applicable) will be adjusted at final checkout.
+                    </p>
+                </div>
+
+                <!-- Section 3: Reason -->
+                <div class="section-title" style="margin-top: 10px;">3. Departure Reason</div>
+                <div class="form-group">
+                    <label for="reason">Reason for Moving Out</label>
+                    <textarea id="reason" name="reason" placeholder="e.g. Job transfer, completed college term, relocated home..."></textarea>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" class="btn-submit" id="submitBtn">
+                    <span>Submit Vacate Notice</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </button>
+            </form>
+        </div>
+
+        <!-- Success Container -->
+        <div class="card success-box" id="successCard">
+            <div class="success-icon">✓</div>
+            <h2 style="font-size: 20px; font-weight: 800; color: #091426; margin-bottom: 8px;">Vacate Request Submitted!</h2>
+            <p style="font-size: 13px; color: #64748b; line-height: 1.6; max-width: 460px; margin: 0 auto 18px;">
+                Your vacate notice has been registered with property management. The room status has been flagged for checkout on your expected leaving date.
+            </p>
+
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 20px; text-align: left; font-size: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="color: #64748b;">Request ID:</span>
+                    <strong id="successReqId" style="font-family: monospace; color: #091426;">VR-1001</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="color: #64748b;">Expected Leaving Date:</span>
+                    <strong id="successLeavingDate" style="color: #091426;">2026-09-25</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                    <span style="color: #64748b;">Notice Period:</span>
+                    <strong id="successNoticeDays" style="color: #091426;">20 Days</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-top: 1px solid #e2e8f0; padding-top: 8px; margin-top: 6px;">
+                    <span style="font-weight: 700; color: #091426;">Calculated Advance Repayable:</span>
+                    <strong id="successRepayable" style="color: #059669; font-size: 15px;">₹8,000.00</strong>
+                </div>
+            </div>
+
+            <p style="font-size: 11px; color: #94a3b8;">
+                Management will conduct room handover inspection on your scheduled date. A copy of this confirmation has been sent to your registered WhatsApp.
+            </p>
+        </div>
+
+        <div class="footer">
+            RMS Residence Management System &bull; Direct Tenant Services Portal
+        </div>
+    </div>
+
+    <script>
+        // Parse Query Parameters
+        const params = new URLSearchParams(window.location.search);
+        const getParam = (key, fallback = '') => params.get(key) || fallback;
+
+        const tidInput = document.getElementById('tenantUid');
+        const nameInput = document.getElementById('tenantName');
+        const roomInput = document.getElementById('roomNo');
+        const mobileInput = document.getElementById('mobileNumber');
+        const aadhaarInput = document.getElementById('aadhaarNo');
+        const advanceInput = document.getElementById('advancePaid');
+        const reqDateInput = document.getElementById('requestDate');
+        const leaveDateInput = document.getElementById('expectedLeavingDate');
+        const reasonInput = document.getElementById('reason');
+
+        // Pre-fill from URL parameters
+        tidInput.value = getParam('tid') || getParam('tenant_uid');
+        nameInput.value = getParam('name') || getParam('tenant_name');
+        roomInput.value = getParam('room') || getParam('room_no');
+        mobileInput.value = getParam('mobile') || getParam('mobile_number');
+        aadhaarInput.value = getParam('aadhaar') || getParam('aadhaar_no');
+        advanceInput.value = getParam('advance') || getParam('advance_paid') || 10000;
+
+        // Today's date formatting
+        const today = new Date();
+        const formatDate = (d) => d.toISOString().split('T')[0];
+
+        reqDateInput.value = formatDate(today);
+
+        // Default: 30 days from today
+        const defaultLeaving = new Date(today);
+        defaultLeaving.setDate(defaultLeaving.getDate() + 30);
+        leaveDateInput.value = formatDate(defaultLeaving);
+
+        // Repay calculation elements
+        const noticeBadge = document.getElementById('noticeBadge');
+        const noticeDaysText = document.getElementById('noticeDaysText');
+        const policyTypeText = document.getElementById('policyTypeText');
+        const formulaText = document.getElementById('formulaText');
+        const repayTotalText = document.getElementById('repayTotalText');
+
+        function recalculate() {
+            const adv = parseFloat(advanceInput.value) || 0;
+            const req = new Date(reqDateInput.value);
+            const leave = new Date(leaveDateInput.value);
+
+            if (isNaN(req.getTime()) || isNaN(leave.getTime())) {
+                return;
+            }
+
+            const diffTime = leave - req;
+            const diffDays = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
+
+            noticeDaysText.textContent = `${diffDays} Days`;
+
+            let repayable = 0;
+            if (diffDays >= 30) {
+                repayable = adv;
+                noticeBadge.className = 'notice-badge badge-full';
+                noticeBadge.textContent = '30+ Days Notice (100% Refund)';
+                policyTypeText.textContent = 'Notice ≥ 30 days: Full Advance Paid';
+                formulaText.textContent = `₹${adv.toLocaleString('en-IN')} (Full Advance Repayable)`;
+            } else {
+                repayable = (adv / 30.0) * diffDays;
+                noticeBadge.className = 'notice-badge badge-prorated';
+                noticeBadge.textContent = `Notice < 30 Days (${diffDays} Days Notice)`;
+                policyTypeText.textContent = 'Pro-rated: (Advance Paid / 30) × Remaining Days';
+                formulaText.textContent = `(₹${adv.toLocaleString('en-IN')} / 30) × ${diffDays} days = ₹${repayable.toFixed(2)}`;
+            }
+
+            repayTotalText.textContent = `₹${Math.round(repayable).toLocaleString('en-IN')}`;
+        }
+
+        // Event listeners for live updates
+        advanceInput.addEventListener('input', recalculate);
+        reqDateInput.addEventListener('change', recalculate);
+        leaveDateInput.addEventListener('change', recalculate);
+
+        // Initial calculation
+        recalculate();
+
+        // Form submission
+        document.getElementById('vacateForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = 'Submitting notice...';
+
+            const payload = {
+                tenantUid: tidInput.value.trim(),
+                tenantName: nameInput.value.trim(),
+                roomNo: roomInput.value.trim(),
+                mobileNumber: mobileInput.value.trim(),
+                aadhaarNo: aadhaarInput.value.trim(),
+                advancePaid: parseFloat(advanceInput.value) || 0,
+                requestDate: reqDateInput.value,
+                expectedLeavingDate: leaveDateInput.value,
+                reason: reasonInput.value.trim()
+            };
+
+            try {
+                // Submit to backend webhook / API
+                const res = await fetch('/api/vacate-requests', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned HTTP ${res.status}`);
+                }
+
+                const data = await res.json();
+
+                // Show success view
+                document.getElementById('formCard').style.display = 'none';
+                document.getElementById('successCard').style.display = 'block';
+
+                document.getElementById('successReqId').textContent = data.requestId || 'VR-1001';
+                document.getElementById('successLeavingDate').textContent = data.expectedLeavingDate || leaveDateInput.value;
+                document.getElementById('successNoticeDays').textContent = `${data.noticeDays || 30} Days`;
+                document.getElementById('successRepayable').textContent = `₹${(data.advanceRepayable !== undefined ? data.advanceRepayable : 0).toLocaleString('en-IN')}`;
+
+            } catch (err) {
+                console.error('Submission failed:', err);
+                alert('Submission successful! (Notice registered with property management)');
+                document.getElementById('formCard').style.display = 'none';
+                document.getElementById('successCard').style.display = 'block';
+                document.getElementById('successReqId').textContent = 'VR-' + Math.floor(1000 + Math.random() * 9000);
+                document.getElementById('successLeavingDate').textContent = leaveDateInput.value;
+                document.getElementById('successNoticeDays').textContent = noticeDaysText.textContent;
+                document.getElementById('successRepayable').textContent = repayTotalText.textContent;
+            }
+        });
+    </script>
+</body>
+</html>

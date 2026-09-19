@@ -15,10 +15,12 @@ import {
     Receipt,
     History,
     AlertCircle,
+    MessageCircle,
 } from 'lucide-react';
-import { Admission, Room, PageId } from '../../types';
+import { Admission, Room, PageId, WhatsAppPackage } from '../../types';
 import { formatAadharDisplay, cleanAadharForDB } from '../../utils/formatters';
 import { apiService } from '../../services/apiService';
+import { WhatsAppQuickShareModal } from '../common/WhatsAppQuickShareModal';
 
 interface AdmissionsViewProps {
     admissions: Admission[];
@@ -80,6 +82,8 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
     const [guidanceMessage, setGuidanceMessage] = useState<string | null>(null);
     const [highlightFields, setHighlightFields] = useState<boolean>(false);
     const [isCheckingResident, setIsCheckingResident] = useState<boolean>(false);
+    const [whatsAppPkg, setWhatsAppPkg] = useState<WhatsAppPackage | null>(null);
+    const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState<boolean>(false);
 
     const formatDateDMY = (dateStr?: string | null): string => {
         if (!dateStr) return 'N/A';
@@ -202,15 +206,61 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
             setGuidanceMessage(null);
             setHighlightFields(false);
 
+            // Construct WhatsApp Welcome & Quick Links Package
+            const cleanPhone = (phone.trim() || '9876543210').replace(/[^0-9]/g, '');
+            const effectivePhone = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
+            const receiptNo = 'REC-ADV-' + Math.floor(10000 + Math.random() * 90000);
+            const baseUrl = window.location.origin;
+            const vacateFormUrl = `${baseUrl}/vacate-form.html?tid=${encodeURIComponent(residentName.trim())}&room=${encodeURIComponent(selectedRoomNumber)}&name=${encodeURIComponent(residentName.trim())}&mobile=${encodeURIComponent(phone.trim())}&aadhaar=${encodeURIComponent(cleanAadharForDB(aadharNumber))}&advance=${monthlyRent}`;
+            const payRentUrl = `${baseUrl}/?page=rent-and-billing`;
+            const upiPayLink = `upi://pay?pa=rmsmanager@okhdfcbank&pn=RMS&am=${monthlyRent}`;
+
+            const msg = `🏨 *WELCOME TO YOUR RESIDENCE!*\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `Dear *${residentName.trim()}*,\n\n` +
+                `Welcome! Your room allocation in *Room ${selectedRoomNumber}* has been officially confirmed.\n\n` +
+                `📋 *Resident Profile:*\n` +
+                `• *Resident Name:* ${residentName.trim()}\n` +
+                `• *Room Number:* ${selectedRoomNumber}\n` +
+                `• *Contact Mobile:* ${phone.trim() || 'N/A'}\n` +
+                `• *Aadhaar Number:* ${aadharNumber ? formatAadharDisplay(aadharNumber) : 'Verified'}\n\n` +
+                `🧾 *Advance Payment Receipt:*\n` +
+                `• *Receipt No:* ${receiptNo}\n` +
+                `• *Advance Deposit Paid:* ₹${monthlyRent.toLocaleString('en-IN')} (Verified ✅)\n` +
+                `• *Standard Monthly Rent:* ₹${monthlyRent.toLocaleString('en-IN')}\n` +
+                `• *Move-in Date:* ${moveInDate}\n\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `⚡ *QUICK ACTIONS & SERVICES:*\n\n` +
+                `💳 *1. Pay Monthly Rent:*\n` +
+                `👉 ${payRentUrl}\n\n` +
+                `🚪 *2. Vacate Request Form:*\n` +
+                `When planning to move out, submit your 30-day notice form directly:\n` +
+                `👉 ${vacateFormUrl}\n\n` +
+                `ℹ️ *Advance Refund Policy:*\n` +
+                `• Notice ≥ 30 days: Full advance repayable (minus maintenance/breakage charges).\n` +
+                `• Notice < 30 days: Pro-rated refund = (Advance / 30) × Notice Days.\n\n` +
+                `Have a pleasant stay! Reach out to management anytime.`;
+
+            const whatsappUrl = `https://wa.me/${effectivePhone}?text=${encodeURIComponent(msg)}`;
+
+            const pkg: WhatsAppPackage = {
+                tenantUid: residentName.trim(),
+                tenantName: residentName.trim(),
+                phone: effectivePhone,
+                message: msg,
+                whatsappUrl,
+                vacateFormUrl,
+                payRentUrl,
+                upiPayLink,
+                receiptNumber: receiptNo,
+            };
+
+            setWhatsAppPkg(pkg);
+            setIsWhatsAppModalOpen(true);
+
             setTimeout(() => {
                 setIsSuccess(false);
-                setResidentName('');
-                setPhone('');
-                setParentNumber('');
-                setEmail('');
-                setAadharNumber('');
-                setHometown('');
-            }, 2500);
+            }, 6000);
         } catch (err: any) {
             console.error('Admission submission failed:', err);
             const msg = err?.message || 'Failed to create admission. Please check the backend and try again.';
@@ -308,11 +358,23 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                     </div>
 
                     {isSuccess && (
-                        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 text-xs font-semibold text-emerald-900 animate-in fade-in">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span>
-                                Tenant successfully enrolled! Room {selectedRoomNumber} capacity updated and payment auto-verified.
-                            </span>
+                        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-semibold text-emerald-900 animate-in fade-in">
+                            <div className="flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <span>
+                                    Tenant successfully enrolled! Room {selectedRoomNumber} capacity updated.
+                                </span>
+                            </div>
+                            {whatsAppPkg && (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsWhatsAppModalOpen(true)}
+                                    className="px-3 py-1.5 bg-[#075e54] hover:bg-[#064942] text-white rounded-lg flex items-center gap-1.5 shadow-2xs transition-colors shrink-0 text-[11px] font-bold"
+                                >
+                                    <MessageCircle className="w-3.5 h-3.5" />
+                                    <span>Open WhatsApp Quick Links</span>
+                                </button>
+                            )}
                         </div>
                     )}
 
@@ -1249,6 +1311,13 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                     </div>
                 </div>
             )}
+
+            {/* WhatsApp Business Quick Share Modal */}
+            <WhatsAppQuickShareModal
+                isOpen={isWhatsAppModalOpen}
+                onClose={() => setIsWhatsAppModalOpen(false)}
+                pkg={whatsAppPkg}
+            />
         </div>
     );
 };

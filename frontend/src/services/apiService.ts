@@ -8,6 +8,8 @@ import {
     Property,
     User,
     TenantStayCheckResult,
+    VacateRequest,
+    WhatsAppPackage,
 } from '../types';
 
 import {
@@ -1131,6 +1133,110 @@ class ApiService {
         );
         const item = await this.parseResponse<any>(response);
         return this.mapTenantFromApi(item);
+    }
+
+    // =========================================================
+    // VACATE REQUESTS (/api/vacate-requests)
+    // =========================================================
+
+    public async getVacateRequests(status?: string, propertyId?: number): Promise<VacateRequest[]> {
+        const propId = propertyId ?? this.activePropertyId;
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+        if (propId) params.append('propertyId', String(propId));
+
+        const queryStr = params.toString() ? `?${params.toString()}` : '';
+        const response = await fetch(
+            this.getUrl(`/vacate-requests${queryStr}`),
+            { headers: this.getHeaders() }
+        );
+
+        if (!response.ok) {
+            return [];
+        }
+
+        return await this.parseResponse<VacateRequest[]>(response);
+    }
+
+    public async submitVacateRequest(data: Partial<VacateRequest>): Promise<VacateRequest> {
+        const response = await fetch(
+            this.getUrl('/vacate-requests'),
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            }
+        );
+
+        return await this.parseResponse<VacateRequest>(response);
+    }
+
+    public async approveVacateRequest(id: number): Promise<VacateRequest> {
+        const response = await fetch(
+            this.getUrl(`/vacate-requests/${id}/approve`),
+            {
+                method: 'PUT',
+                headers: this.getHeaders(),
+            }
+        );
+
+        return await this.parseResponse<VacateRequest>(response);
+    }
+
+    public async rejectVacateRequest(id: number, reason?: string): Promise<VacateRequest> {
+        const response = await fetch(
+            this.getUrl(`/vacate-requests/${id}/reject`),
+            {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+            }
+        );
+
+        return await this.parseResponse<VacateRequest>(response);
+    }
+
+    public async updateVacateCharges(
+        id: number,
+        maintenanceCharge: number,
+        breakageCharge: number,
+        notes?: string
+    ): Promise<VacateRequest> {
+        const response = await fetch(
+            this.getUrl(`/vacate-requests/${id}/charges`),
+            {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ maintenanceCharge, breakageCharge, notes }),
+            }
+        );
+
+        return await this.parseResponse<VacateRequest>(response);
+    }
+
+    public async completeVacateRequest(id: number): Promise<VacateRequest> {
+        const response = await fetch(
+            this.getUrl(`/vacate-requests/${id}/complete`),
+            {
+                method: 'PUT',
+                headers: this.getHeaders(),
+            }
+        );
+
+        return await this.parseResponse<VacateRequest>(response);
+    }
+
+    // =========================================================
+    // WHATSAPP BUSINESS QUICK LINKS (/api/notifications/whatsapp)
+    // =========================================================
+
+    public async getWhatsAppWelcomePreview(tenantUid: string): Promise<WhatsAppPackage> {
+        const response = await fetch(
+            this.getUrl(`/notifications/whatsapp/welcome-preview/${encodeURIComponent(tenantUid)}`),
+            { headers: this.getHeaders() }
+        );
+
+        return await this.parseResponse<WhatsAppPackage>(response);
     }
 
     // =========================================================

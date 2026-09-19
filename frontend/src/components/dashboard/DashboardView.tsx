@@ -18,8 +18,11 @@ import {
     FileCheck,
     Banknote,
     Smartphone,
+    ExternalLink,
 } from 'lucide-react';
-import { CriticalAction, Admission, Room, Tenant, Invoice, PageId } from '../../types';
+import { CriticalAction, Admission, Room, Tenant, Invoice, PageId, VacateRequest } from '../../types';
+import { apiService } from '../../services/apiService';
+import { VacateRequestsModal } from './VacateRequestsModal';
 import {
     AVAILABLE_MONTHS,
     getMonthlyRentSummary,
@@ -54,6 +57,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const [statusFilter, setStatusFilter] = useState<'all' | 'upi' | 'cash' | 'pending'>('all');
     const [markedPaidLoading, setMarkedPaidLoading] = useState<string | null>(null);
     const [reminderSentTenant, setReminderSentTenant] = useState<string | null>(null);
+    const [vacateRequests, setVacateRequests] = useState<VacateRequest[]>([]);
+    const [isVacateModalOpen, setIsVacateModalOpen] = useState(false);
+
+    const loadVacateRequests = React.useCallback(async () => {
+        try {
+            const list = await apiService.getVacateRequests();
+            setVacateRequests(list);
+        } catch (err) {
+            console.error('Failed to fetch vacate requests:', err);
+        }
+    }, []);
+
+    React.useEffect(() => {
+        loadVacateRequests();
+    }, [loadVacateRequests]);
 
     // --- 1. Property Inventory Calculations for Compact Strip ---
     const totalRooms = rooms.length;
@@ -517,19 +535,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             </div>
                             <div>
                                 <h2 className="text-sm font-bold text-[#091426] tracking-tight">
-                                    Vacate Requests
+                                    Vacate Requests Desk
                                 </h2>
-                                <p className="text-[11px] text-slate-500">Scheduled move-outs &amp; vacate notices</p>
                             </div>
                         </div>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 font-mono">
-                            {criticalActions.filter(a => a.badgeText.toLowerCase().includes('vacate') || a.code.toLowerCase().includes('vac')).length} Pending
-                        </span>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setIsVacateModalOpen(true)}
+                                className="px-2 py-0.5 rounded-md text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
+                            >
+                                Manage
+                            </button>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 font-mono">
+                                {vacateRequests.filter(r => r.status === 'PENDING' || r.status === 'APPROVED').length} Active
+                            </span>
+                        </div>
                     </div>
 
                     {/* Vertical Box of Vacate Action Cards */}
                     <div className="flex flex-col gap-2.5">
-                        {criticalActions.filter(a => a.badgeText.toLowerCase().includes('vacate') || a.code.toLowerCase().includes('vac')).length === 0 ? (
+                        {vacateRequests.filter(r => r.status === 'PENDING' || r.status === 'APPROVED').length === 0 ? (
                             <div className="py-8 px-4 text-center flex flex-col items-center justify-center gap-2 text-slate-400 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
                                 <div className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
                                     <CheckCircle2 className="w-5 h-5" />
@@ -538,40 +564,61 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 <span className="text-[11px] text-slate-400 max-w-[220px]">
                                     All scheduled departures and move-out notices are clear.
                                 </span>
+                                <a
+                                    href="/vacate-form.html"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800"
+                                >
+                                    <span>Open External Vacate Form</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                </a>
                             </div>
                         ) : (
-                            criticalActions
-                                .filter(a => a.badgeText.toLowerCase().includes('vacate') || a.code.toLowerCase().includes('vac'))
-                                .map(action => (
+                            vacateRequests
+                                .filter(r => r.status === 'PENDING' || r.status === 'APPROVED')
+                                .slice(0, 4)
+                                .map(req => (
                                     <div
-                                        key={action.id}
+                                        key={req.id}
                                         className="p-3 bg-amber-50/40 hover:bg-amber-50/70 rounded-lg border border-amber-200/80 flex flex-col justify-between gap-2 transition-all"
                                     >
                                         <div>
                                             <div className="flex items-center justify-between">
-                                                <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-900">
-                                                    {action.badgeText}
+                                                <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded ${
+                                                    req.status === 'PENDING'
+                                                        ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                                        : 'bg-blue-100 text-blue-900 border border-blue-200'
+                                                }`}>
+                                                    {req.status === 'PENDING' ? 'Notice Received' : 'Notice Approved'}
                                                 </span>
                                                 <span className="font-mono text-[10px] font-bold text-slate-400">
-                                                    {action.code}
+                                                    {req.requestId}
                                                 </span>
                                             </div>
-                                            <div className="text-xs font-bold text-slate-900 mt-1.5">{action.title}</div>
-                                            <div className="text-[11px] text-slate-500 mt-0.5">{action.subtitle}</div>
+                                            <div className="text-xs font-bold text-slate-900 mt-1.5 flex items-center justify-between">
+                                                <span>{req.tenantName} (Room {req.roomNo})</span>
+                                                <span className="text-emerald-700 font-bold text-[11px]">
+                                                    Refund: ₹{req.advanceRepayable.toLocaleString('en-IN')}
+                                                </span>
+                                            </div>
+                                            <div className="text-[11px] text-slate-500 mt-0.5">
+                                                Vacating: <strong className="text-slate-700">{req.expectedLeavingDate}</strong> ({req.noticeDays} days notice)
+                                            </div>
                                         </div>
 
                                         <div className="flex items-center gap-2 pt-2 border-t border-amber-200/50 mt-0.5">
                                             <button
-                                                onClick={() => onNavigate('rooms')}
+                                                onClick={() => setIsVacateModalOpen(true)}
                                                 className="flex-1 py-1 px-2.5 bg-[#091426] hover:bg-slate-800 text-white rounded text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
                                             >
-                                                <span>{action.primaryActionText || 'View Room'}</span>
+                                                <span>Review & Action</span>
                                             </button>
                                             <button
-                                                onClick={() => onActionDismiss(action.id)}
+                                                onClick={() => onNavigate('rooms')}
                                                 className="py-1 px-2.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded text-[11px] font-medium transition-colors"
                                             >
-                                                Dismiss
+                                                Room {req.roomNo}
                                             </button>
                                         </div>
                                     </div>
@@ -774,6 +821,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </table>
                 </div>
             </div>
+
+            {/* Vacate Requests Desk Modal */}
+            <VacateRequestsModal
+                isOpen={isVacateModalOpen}
+                onClose={() => setIsVacateModalOpen(false)}
+                requests={vacateRequests}
+                onRefresh={loadVacateRequests}
+            />
         </div>
     );
 };
