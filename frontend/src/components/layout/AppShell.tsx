@@ -1,3 +1,5 @@
+import { authSession } from '../../auth/session';
+import { ROLES } from '../../config/constants';
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { apiService } from '../../services/apiService';
@@ -79,6 +81,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     };
 
     const handleQuickAdmission = () => {
+        if (authSession.principal()?.role === ROLES.SUB_MEMBER) return;
         onQuickAdmission();
         setIsMobileSidebarOpen(false);
     };
@@ -117,12 +120,9 @@ export const AppShell: React.FC<AppShellProps> = ({
                 .catch(() => setInternalProperties([]));
         }
 
-        apiService.getUsers()
-            .then(users => {
-                const active = users.find(u => u.role === 'ADMIN' || u.role === 'PROPERTY_MANAGER') ?? users[0] ?? null;
-                setCurrentUser(active);
-            })
-            .catch(() => setCurrentUser(null));
+        const principal = authSession.principal();
+        if (principal) apiService.getUserById(principal.userId)
+            .then(setCurrentUser).catch(() => setCurrentUser(null));
     }, [propsList]);
 
     useEffect(() => {
@@ -603,6 +603,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                             </span>
                         </NavLink>
 
+                        {[ROLES.OWNER, ROLES.TEST_BYPASS].includes(authSession.principal()?.role as any) && (
                         <NavLink
                             id="nav-settings"
                             to="/settings"
@@ -624,6 +625,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                                 Settings &amp; REST
                             </span>
                         </NavLink>
+                        )}
 
                     </nav>
                 </div>

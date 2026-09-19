@@ -1,3 +1,5 @@
+import { ROLES } from '../../config/constants';
+import { API_PATHS } from '../../config/apiPaths';
 import React, { useState } from 'react';
 import {
     Settings,
@@ -76,7 +78,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const [userFullName, setUserFullName] = useState('');
     const [userUsername, setUserUsername] = useState('');
     const [userEmail, setUserEmail] = useState('');
-    const [userRole, setUserRole] = useState('PROPERTY_MANAGER');
+    const [userRole, setUserRole] = useState<string>(ROLES.SUB_MEMBER);
+    const [userPassword, setUserPassword] = useState('');
+    const [userPropertyIds, setUserPropertyIds] = useState<number[]>([]);
     const [userPhone, setUserPhone] = useState('');
     const [userStatus, setUserStatus] = useState('ACTIVE');
     const [isSubmittingUser, setIsSubmittingUser] = useState(false);
@@ -91,7 +95,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setTestResult({ status: 'testing', message: 'Pinging Spring Boot REST endpoint...' });
         try {
             const startTime = performance.now();
-            const response = await fetch(`${config.baseUrl}/properties`, { method: 'GET' }).catch(() => null);
+            const response = await fetch(`${config.baseUrl}${API_PATHS.CLIENT_CONFIG}`, { method: 'GET' }).catch(() => null);
             const elapsed = Math.round(performance.now() - startTime);
 
             if (response && response.ok) {
@@ -199,10 +203,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     // User Handlers
     const openAddUserModal = () => {
         setEditingUser(null);
+        setUserPassword('');
+        setUserPropertyIds([]);
         setUserFullName('');
         setUserUsername('');
         setUserEmail('');
-        setUserRole('PROPERTY_MANAGER');
+        setUserRole(ROLES.SUB_MEMBER);
         setUserPhone('');
         setUserStatus('ACTIVE');
         setIsUserModalOpen(true);
@@ -210,6 +216,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     const openEditUserModal = (u: User) => {
         setEditingUser(u);
+        setUserPassword('');
+        setUserPropertyIds(u.propertyIds || []);
         setUserFullName(u.fullName);
         setUserUsername(u.username);
         setUserEmail(u.email);
@@ -232,6 +240,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 username: userUsername.trim().toLowerCase(),
                 email: userEmail.trim().toLowerCase(),
                 role: userRole,
+                propertyIds: userPropertyIds,
+                ...(userPassword ? { password: userPassword } : {}),
                 phone: userPhone.trim(),
                 status: userStatus,
             };
@@ -488,9 +498,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                         </div>
 
                                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                            u.role === 'ADMIN'
+                                            u.role === ROLES.OWNER
                                                 ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                                : u.role === 'PROPERTY_MANAGER'
+                                                : u.role === ROLES.REPRESENTATIVE
                                                     ? 'bg-blue-50 text-blue-700 border-blue-200'
                                                     : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                         }`}>
@@ -897,6 +907,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         </div>
 
                         <form onSubmit={handleSaveUser} className="p-5 flex flex-col gap-3 text-xs">
+                            <label className="font-semibold text-slate-700">{editingUser ? 'New password (leave blank to keep current)' : 'Initial password *'}
+                                <input type="password" value={userPassword} onChange={e => setUserPassword(e.target.value)} required={!editingUser} minLength={12} maxLength={72} autoComplete="new-password" className="block w-full h-9 px-3 border rounded-lg mt-1" />
+                            </label>
+                            <fieldset className="border rounded-lg p-3"><legend className="font-semibold">Assigned PGs</legend>
+                                {properties.map(property => <label key={property.id} className="flex items-center gap-2 py-1">
+                                    <input type="checkbox" checked={userPropertyIds.includes(property.id)} onChange={e => setUserPropertyIds(ids => e.target.checked ? [...ids, property.id] : ids.filter(id => id !== property.id))} />
+                                    {property.name}
+                                </label>)}
+                                {!properties.length && <p>Create a property before granting PG access.</p>}
+                            </fieldset>
+
                             <div className="flex flex-col gap-1">
                                 <label className="font-semibold text-slate-700">Full Name *</label>
                                 <input
@@ -928,9 +949,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                         onChange={e => setUserRole(e.target.value)}
                                         className="h-9 px-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none"
                                     >
-                                        <option value="ADMIN">ADMIN</option>
-                                        <option value="PROPERTY_MANAGER">PROPERTY MANAGER</option>
-                                        <option value="STAFF">STAFF</option>
+                                        <option value={ROLES.REPRESENTATIVE}>REPRESENTATIVE</option>
+                                        <option value={ROLES.SUB_MEMBER}>SUB MEMBER (READ ONLY)</option>
                                     </select>
                                 </div>
                             </div>

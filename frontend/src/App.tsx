@@ -1,3 +1,5 @@
+import { authSession } from './auth/session';
+import { ROLES } from './config/constants';
 import React, { useState, useEffect } from 'react';
 import { PageId, CriticalAction, Tenant, Admission, Room, Transaction, Invoice, Property, User } from './types';
 import { apiService } from './services/apiService';
@@ -72,7 +74,7 @@ export function App() {
                     apiService.getRooms(effectivePropId ?? undefined),
                     apiService.getTransactions(undefined, effectivePropId ?? undefined),
                     apiService.getInvoices(undefined, undefined, effectivePropId ?? undefined),
-                    apiService.getUsers(),
+                    [ROLES.OWNER, ROLES.TEST_BYPASS].includes(authSession.principal()?.role as any) ? apiService.getUsers() : Promise.resolve([]),
                 ]);
 
             setCriticalActions(actionsData);
@@ -512,7 +514,7 @@ export function App() {
 
                 <Route
                     path="/settings"
-                    element={
+                    element={[ROLES.OWNER, ROLES.TEST_BYPASS].includes(authSession.principal()?.role as any) ? (
                         <SettingsView
                             properties={properties}
                             users={users}
@@ -525,7 +527,7 @@ export function App() {
                             onResetData={handleResetData}
                             onReloadData={loadData}
                         />
-                    }
+                    ) : <Navigate to="/dashboard" replace />}
                 />
 
                 <Route

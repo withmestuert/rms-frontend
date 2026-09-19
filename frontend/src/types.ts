@@ -138,7 +138,10 @@ export interface User {
     username: string;
     email: string;
     fullName: string;
-    role: string; // ADMIN | PROPERTY_MANAGER | STAFF
+    role: string; // OWNER | REPRESENTATIVE | SUB_MEMBER
+    ownerId?: number;
+    propertyIds?: number[];
+    password?: string;
     phone?: string;
     status: string;
 }

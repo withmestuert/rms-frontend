@@ -1,3 +1,6 @@
+import { API_PATHS } from '../config/apiPaths';
+import { STORAGE_KEYS, ROLES, AUTHORIZATION_HEADER, PROPERTY_HEADER } from '../config/constants';
+import { authSession } from '../auth/session';
 import {
     CriticalAction,
     Tenant,
@@ -16,24 +19,23 @@ import {
     INITIAL_INVOICES,
 } from '../data/mockData';
 
+export class ApiError extends Error {
+    constructor(public readonly status: number, message: string) { super(message); }
+}
+
 export interface ApiConfig {
     baseUrl: string;
     useLiveBackend: boolean;
     syncLatencyMs: number;
 }
 
-const STORAGE_KEYS = {
-    CONFIG: 'rms_api_config',
-    ACTIVE_PROPERTY: 'rms_active_property_id',
-    ACTIONS: 'rms_actions_v2',
-    TRANSACTIONS: 'rms_transactions_v2',
-    INVOICES: 'rms_invoices_v3',
-};
 
-const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
+
+const environment = (import.meta.env || {}) as Record<string, string | undefined>;
+const rawBaseUrl = environment.VITE_API_BASE_URL || 'http://localhost:8080/api';
 const DEFAULT_BASE_URL = rawBaseUrl.trim().replace(/\/+$/, '');
-const DEFAULT_USE_LIVE_BACKEND = import.meta.env.VITE_USE_LIVE_BACKEND !== 'false';
-const DEFAULT_SYNC_LATENCY_MS = Number(import.meta.env.VITE_SYNC_LATENCY_MS) || 12;
+const DEFAULT_USE_LIVE_BACKEND = environment.VITE_USE_LIVE_BACKEND !== 'false';
+const DEFAULT_SYNC_LATENCY_MS = Number(environment.VITE_SYNC_LATENCY_MS) || 12;
 
 class ApiService {
     private config: ApiConfig = {
@@ -95,6 +97,10 @@ class ApiService {
     }
 
     public updateConfig(newConfig: Partial<ApiConfig>): void {
+        if (newConfig.baseUrl && newConfig.baseUrl !== this.config.baseUrl) {
+            this.setActivePropertyId(null);
+            authSession.clear();
+        }
         this.config = {
             ...this.config,
             ...newConfig,
@@ -133,18 +139,31 @@ class ApiService {
             ...extraHeaders,
         };
         if (this.activePropertyId != null) {
-            headers['X-Property-Id'] = String(this.activePropertyId);
+            headers[PROPERTY_HEADER] = String(this.activePropertyId);
         }
         return headers;
+    }
+
+    private async request(url: string, init: RequestInit = {}): Promise<Response> {
+        const user = authSession.principal();
+        const method = (init.method || 'GET').toUpperCase();
+        if (user?.role === ROLES.SUB_MEMBER && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+            throw new ApiError(403, 'Your account has read-only access. Ask the PG owner to make this change.');
+        }
+        const headers = new Headers(init.headers);
+        Object.entries(this.getHeaders()).forEach(([key, value]) => headers.set(key, value));
+        const token = authSession.tokenFor(this.config.baseUrl);
+        if (token) headers.set(AUTHORIZATION_HEADER, `Bearer ${token}`);
+        const response = await fetch(url, { ...init, headers, credentials: 'omit', cache: 'no-store' });
+        if (response.status === 401) { this.setActivePropertyId(null); authSession.clear(); }
+        return response;
     }
 
     private async parseResponse<T>(response: Response): Promise<T> {
         if (!response.ok) {
             const errorText = await response.text();
 
-            throw new Error(
-                `HTTP ${response.status}: ${errorText || response.statusText}`
-            );
+            throw new ApiError(response.status, `HTTP ${response.status}: ${errorText || response.statusText}`);
         }
 
         if (response.status === 204) {
@@ -295,8 +314,8 @@ class ApiService {
 
     public async getTenants(propertyId?: number): Promise<Tenant[]> {
         const propId = propertyId ?? this.activePropertyId;
-        const url = propId ? this.getUrl(`/tenants?propertyId=${propId}`) : this.getUrl('/tenants');
-        const response = await fetch(
+        const url = propId ? this.getUrl(`${API_PATHS.TENANTS}?propertyId=${propId}`) : this.getUrl(API_PATHS.TENANTS);
+        const response = await this.request(
             url,
             { headers: this.getHeaders() }
         );
@@ -306,8 +325,8 @@ class ApiService {
     }
 
     public async getTenantByUid(uid: string): Promise<Tenant> {
-        const response = await fetch(
-            this.getUrl(`/tenants/${encodeURIComponent(uid)}`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.tenant(uid)),
             { headers: this.getHeaders() }
         );
 
@@ -316,8 +335,8 @@ class ApiService {
     }
 
     public async getTenantsByRoom(roomNo: string): Promise<Tenant[]> {
-        const response = await fetch(
-            this.getUrl(`/tenants/room/${encodeURIComponent(roomNo)}`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.tenantsInRoom(roomNo)),
             { headers: this.getHeaders() }
         );
 
@@ -344,8 +363,8 @@ class ApiService {
             propertyId: tenant.propertyId ?? this.activePropertyId ?? undefined,
         };
 
-        const response = await fetch(
-            this.getUrl('/tenants'),
+        const response = await this.request(
+            this.getUrl(API_PATHS.TENANTS),
             {
                 method: 'POST',
                 headers: this.getHeaders(),
@@ -378,8 +397,8 @@ class ApiService {
             propertyId: tenantData.propertyId ?? this.activePropertyId ?? undefined,
         };
 
-        const response = await fetch(
-            this.getUrl(`/tenants/${encodeURIComponent(uid)}`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.tenant(uid)),
             {
                 method: 'PUT',
                 headers: this.getHeaders(),
@@ -392,8 +411,8 @@ class ApiService {
     }
 
     public async deleteTenant(uid: string): Promise<void> {
-        const response = await fetch(
-            this.getUrl(`/tenants/${encodeURIComponent(uid)}`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.tenant(uid)),
             {
                 method: 'DELETE',
                 headers: this.getHeaders(),
@@ -409,8 +428,8 @@ class ApiService {
 
     public async getAdmissions(propertyId?: number): Promise<Admission[]> {
         const propId = propertyId ?? this.activePropertyId;
-        const url = propId ? this.getUrl(`/admissions?propertyId=${propId}`) : this.getUrl('/admissions');
-        const response = await fetch(
+        const url = propId ? this.getUrl(`${API_PATHS.ADMISSIONS}?propertyId=${propId}`) : this.getUrl(API_PATHS.ADMISSIONS);
+        const response = await this.request(
             url,
             { headers: this.getHeaders() }
         );
@@ -420,8 +439,8 @@ class ApiService {
     }
 
     public async getAdmissionByNumber(admissionNumber: string): Promise<Admission> {
-        const response = await fetch(
-            this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.admission(admissionNumber)),
             { headers: this.getHeaders() }
         );
 
@@ -455,8 +474,8 @@ class ApiService {
             propertyId: admissionData.propertyId ?? this.activePropertyId ?? undefined,
         };
 
-        const response = await fetch(
-            this.getUrl('/admissions'),
+        const response = await this.request(
+            this.getUrl(API_PATHS.ADMISSIONS),
             {
                 method: 'POST',
                 headers: this.getHeaders(),
@@ -469,8 +488,8 @@ class ApiService {
     }
 
     public async confirmAdmission(admissionNumber: string): Promise<Admission> {
-        const response = await fetch(
-            this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}/confirm`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.confirmAdmission(admissionNumber)),
             {
                 method: 'PUT',
                 headers: this.getHeaders(),
@@ -482,8 +501,8 @@ class ApiService {
     }
 
     public async cancelAdmission(admissionNumber: string): Promise<void> {
-        const response = await fetch(
-            this.getUrl(`/admissions/${encodeURIComponent(admissionNumber)}`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.admission(admissionNumber)),
             {
                 method: 'DELETE',
                 headers: this.getHeaders(),
@@ -506,9 +525,9 @@ class ApiService {
         }
 
         const query = params.toString();
-        const url = this.getUrl(`/admissions/check-existing${query ? `?${query}` : ''}`);
+        const url = this.getUrl(`${API_PATHS.CHECK_EXISTING}${query ? `?${query}` : ''}`);
 
-        const response = await fetch(url, {
+        const response = await this.request(url, {
             headers: this.getHeaders(),
         });
 
@@ -521,7 +540,7 @@ class ApiService {
 
     public async getRooms(propertyId?: number): Promise<Room[]> {
         const propId = propertyId ?? this.activePropertyId;
-        const url = propId ? this.getUrl(`/rooms?propertyId=${propId}`) : this.getUrl('/rooms');
+        const url = propId ? this.getUrl(`${API_PATHS.ROOMS}?propertyId=${propId}`) : this.getUrl(API_PATHS.ROOMS);
 
         let tenants: Tenant[] | null = null;
         try {
@@ -530,7 +549,7 @@ class ApiService {
             tenants = null;
         }
 
-        const roomsResponse = await fetch(url, { headers: this.getHeaders() });
+        const roomsResponse = await this.request(url, { headers: this.getHeaders() });
         const data = await this.parseResponse<any[]>(roomsResponse);
 
         return data.map((item): Room => {
@@ -568,8 +587,8 @@ class ApiService {
     }
 
     public async getRoomByRoomNo(roomNo: string): Promise<Room> {
-        const response = await fetch(
-            this.getUrl(`/rooms/${encodeURIComponent(roomNo)}`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.room(roomNo)),
             { headers: this.getHeaders() }
         );
 
@@ -624,8 +643,8 @@ class ApiService {
             propertyId: roomData.propertyId ?? this.activePropertyId ?? undefined,
         };
 
-        const response = await fetch(
-            this.getUrl('/rooms'),
+        const response = await this.request(
+            this.getUrl(API_PATHS.ROOMS),
             {
                 method: 'POST',
                 headers: this.getHeaders(),
@@ -668,9 +687,9 @@ class ApiService {
             propertyId: roomData.propertyId ?? this.activePropertyId ?? undefined,
         };
 
-        const response = await fetch(
+        const response = await this.request(
             this.getUrl(
-                `/rooms/${encodeURIComponent(roomNumber)}`
+                API_PATHS.room(roomNumber)
             ),
             {
                 method: 'PUT',
@@ -700,9 +719,9 @@ class ApiService {
     public async deleteRoom(
         roomNumber: string
     ): Promise<void> {
-        const response = await fetch(
+        const response = await this.request(
             this.getUrl(
-                `/rooms/${encodeURIComponent(roomNumber)}`
+                API_PATHS.room(roomNumber)
             ),
             {
                 method: 'DELETE',
@@ -743,8 +762,8 @@ class ApiService {
             if (type) params.append('type', type.toUpperCase());
             if (propId) params.append('propertyId', String(propId));
 
-            const url = this.getUrl('/ledger' + (params.toString() ? `?${params.toString()}` : ''));
-            const response = await fetch(url, { headers: this.getHeaders() });
+            const url = this.getUrl(API_PATHS.LEDGER + (params.toString() ? `?${params.toString()}` : ''));
+            const response = await this.request(url, { headers: this.getHeaders() });
             const data = await this.parseResponse<any[]>(response);
             return data.map((item: any): Transaction => ({
                 id: String(item.id),
@@ -760,6 +779,7 @@ class ApiService {
                 propertyId: item.propertyId,
             }));
         } catch (err) {
+            if (this.config.useLiveBackend || err instanceof ApiError) throw err;
             console.warn('Backend ledger unavailable, falling back to local storage:', err);
             return this.getStorage(STORAGE_KEYS.TRANSACTIONS, []);
         }
@@ -773,8 +793,8 @@ class ApiService {
             if (status) params.append('status', status.toUpperCase());
             if (propId) params.append('propertyId', String(propId));
 
-            const url = this.getUrl('/invoices' + (params.toString() ? `?${params.toString()}` : ''));
-            const response = await fetch(url, { headers: this.getHeaders() });
+            const url = this.getUrl(API_PATHS.INVOICES + (params.toString() ? `?${params.toString()}` : ''));
+            const response = await this.request(url, { headers: this.getHeaders() });
             const data = await this.parseResponse<any[]>(response);
             return data.map((item: any): Invoice => ({
                 id: String(item.id),
@@ -790,13 +810,14 @@ class ApiService {
                 propertyId: item.propertyId,
             }));
         } catch (err) {
+            if (this.config.useLiveBackend || err instanceof ApiError) throw err;
             console.warn('Backend invoices unavailable, falling back to local storage:', err);
             return this.getStorage(STORAGE_KEYS.INVOICES, []);
         }
     }
 
     public async generateCycleInvoices(monthYear: string, dueDate: string): Promise<any> {
-        const response = await fetch(this.getUrl('/invoices/generate-cycle'), {
+        const response = await this.request(this.getUrl(API_PATHS.INVOICES_GENERATE_CYCLE), {
             method: 'POST',
             headers: this.getHeaders(),
             body: JSON.stringify({ monthYear, dueDate }),
@@ -811,7 +832,7 @@ class ApiService {
         paidOn?: string
     ): Promise<void> {
         try {
-            const response = await fetch(this.getUrl(`/invoices/${encodeURIComponent(invoiceId)}/pay`), {
+            const response = await this.request(this.getUrl(API_PATHS.payInvoice(invoiceId)), {
                 method: 'POST',
                 headers: this.getHeaders(),
                 body: JSON.stringify({
@@ -822,6 +843,7 @@ class ApiService {
             });
             await this.parseResponse<any>(response);
         } catch (err) {
+            if (this.config.useLiveBackend || err instanceof ApiError) throw err;
             console.warn('Backend invoice payment recording failed, using local storage fallback:', err);
             const invoices = await this.getStorage<Invoice[]>(STORAGE_KEYS.INVOICES, []);
 
@@ -869,10 +891,11 @@ class ApiService {
 
     public async getLedgerBalance(): Promise<number> {
         try {
-            const response = await fetch(this.getUrl('/ledger/balance'), { headers: this.getHeaders() });
+            const response = await this.request(this.getUrl(API_PATHS.LEDGER_BALANCE), { headers: this.getHeaders() });
             const data = await this.parseResponse<{ runningBalance: number }>(response);
             return data.runningBalance;
-        } catch {
+        } catch (err) {
+            if (this.config.useLiveBackend || err instanceof ApiError) throw err;
             const txns = await this.getTransactions();
             return txns[0]?.runningBalance ?? 0;
         }
@@ -888,7 +911,7 @@ class ApiService {
         date?: string;
         propertyId?: number;
     }): Promise<Transaction> {
-        const response = await fetch(this.getUrl('/ledger'), {
+        const response = await this.request(this.getUrl(API_PATHS.LEDGER), {
             method: 'POST',
             headers: this.getHeaders(),
             body: JSON.stringify({
@@ -936,7 +959,7 @@ class ApiService {
      * Wipes all backend database mock/transactional records and clears local storage.
      */
     public async cleanDatabase(): Promise<{ status: string; message: string; timestamp: string }> {
-        const response = await fetch(this.getUrl('/system/clean-database'), {
+        const response = await this.request(this.getUrl(API_PATHS.SYSTEM_CLEAN_DATABASE), {
             method: 'POST',
             headers: this.getHeaders(),
         });
@@ -950,7 +973,7 @@ class ApiService {
     // =========================================================
 
     public async getProperties(): Promise<Property[]> {
-        const response = await fetch(this.getUrl('/properties'));
+        const response = await this.request(this.getUrl(API_PATHS.PROPERTIES));
         const data = await this.parseResponse<any[]>(response);
         return data.map((p): Property => ({
             id: p.id,
@@ -969,7 +992,7 @@ class ApiService {
     }
 
     public async getPropertyById(id: number): Promise<Property> {
-        const response = await fetch(this.getUrl(`/properties/${id}`));
+        const response = await this.request(this.getUrl(API_PATHS.property(id)));
         const p = await this.parseResponse<any>(response);
         return {
             id: p.id,
@@ -988,7 +1011,7 @@ class ApiService {
     }
 
     public async createProperty(propertyData: Omit<Property, 'id'>): Promise<Property> {
-        const response = await fetch(this.getUrl('/properties'), {
+        const response = await this.request(this.getUrl(API_PATHS.PROPERTIES), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(propertyData),
@@ -1011,7 +1034,7 @@ class ApiService {
     }
 
     public async updateProperty(id: number, propertyData: Partial<Property>): Promise<Property> {
-        const response = await fetch(this.getUrl(`/properties/${id}`), {
+        const response = await this.request(this.getUrl(API_PATHS.property(id)), {
             method: 'PUT',
             headers: this.getHeaders(),
             body: JSON.stringify(propertyData),
@@ -1034,7 +1057,7 @@ class ApiService {
     }
 
     public async deleteProperty(id: number): Promise<void> {
-        const response = await fetch(this.getUrl(`/properties/${id}`), {
+        const response = await this.request(this.getUrl(API_PATHS.property(id)), {
             method: 'DELETE',
         });
         await this.parseResponse<any>(response);
@@ -1045,21 +1068,23 @@ class ApiService {
     // =========================================================
 
     public async getUsers(): Promise<User[]> {
-        const response = await fetch(this.getUrl('/users'));
+        const response = await this.request(this.getUrl(API_PATHS.USERS));
         const data = await this.parseResponse<any[]>(response);
-        return data.map((u): User => ({
+        return data.filter(u => u.role !== ROLES.OWNER && u.role !== ROLES.ROOT).map((u): User => ({
             id: u.id,
             username: u.username,
             email: u.email,
             fullName: u.fullName,
             role: u.role,
+            ownerId: u.ownerId,
+            propertyIds: u.propertyIds || [],
             phone: u.phone,
             status: u.status,
         }));
     }
 
     public async getUserById(id: number): Promise<User> {
-        const response = await fetch(this.getUrl(`/users/${id}`));
+        const response = await this.request(this.getUrl(API_PATHS.user(id)));
         const u = await this.parseResponse<any>(response);
         return {
             id: u.id,
@@ -1067,13 +1092,15 @@ class ApiService {
             email: u.email,
             fullName: u.fullName,
             role: u.role,
+            ownerId: u.ownerId,
+            propertyIds: u.propertyIds || [],
             phone: u.phone,
             status: u.status,
         };
     }
 
     public async createUser(userData: Omit<User, 'id'>): Promise<User> {
-        const response = await fetch(this.getUrl('/users'), {
+        const response = await this.request(this.getUrl(API_PATHS.USERS), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(userData),
@@ -1085,13 +1112,15 @@ class ApiService {
             email: u.email,
             fullName: u.fullName,
             role: u.role,
+            ownerId: u.ownerId,
+            propertyIds: u.propertyIds || [],
             phone: u.phone,
             status: u.status,
         };
     }
 
     public async updateUser(id: number, userData: Partial<User>): Promise<User> {
-        const response = await fetch(this.getUrl(`/users/${id}`), {
+        const response = await this.request(this.getUrl(API_PATHS.user(id)), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(userData),
@@ -1103,13 +1132,15 @@ class ApiService {
             email: u.email,
             fullName: u.fullName,
             role: u.role,
+            ownerId: u.ownerId,
+            propertyIds: u.propertyIds || [],
             phone: u.phone,
             status: u.status,
         };
     }
 
     public async deleteUser(id: number): Promise<void> {
-        const response = await fetch(this.getUrl(`/users/${id}`), {
+        const response = await this.request(this.getUrl(API_PATHS.user(id)), {
             method: 'DELETE',
         });
         await this.parseResponse<any>(response);
@@ -1121,8 +1152,8 @@ class ApiService {
 
     public async verifyTenantAdvance(uid: string, amount?: number): Promise<Tenant> {
         const body = amount != null ? JSON.stringify({ amount }) : '{}';
-        const response = await fetch(
-            this.getUrl(`/tenants/${encodeURIComponent(uid)}/verify-advance`),
+        const response = await this.request(
+            this.getUrl(API_PATHS.verifyAdvance(uid)),
             {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
