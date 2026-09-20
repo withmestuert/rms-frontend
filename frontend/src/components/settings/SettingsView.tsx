@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Settings,
     Server,
@@ -6,6 +6,7 @@ import {
     RefreshCw,
     CheckCircle2,
     ShieldCheck,
+    ShieldAlert,
     Building2,
     Users,
     Plus,
@@ -17,9 +18,16 @@ import {
     MapPin,
     RotateCcw,
     Shield,
+    Archive,
+    Clock,
+    FileText,
+    AlertTriangle,
+    Eye,
 } from 'lucide-react';
 import { apiService, ApiConfig } from '../../services/apiService';
-import { Property, User } from '../../types';
+import { Property, User, PropertyArchiveSnapshot, PropertySoftDeleteRequest } from '../../types';
+import { PropertySoftDeleteModal } from './PropertySoftDeleteModal';
+import { PropertySnapshotModal } from './PropertySnapshotModal';
 
 interface SettingsViewProps {
     properties: Property[];
@@ -30,7 +38,7 @@ interface SettingsViewProps {
     onCreateUser: (data: Omit<User, 'id'>) => Promise<User>;
     onUpdateUser: (id: number, data: Partial<User>) => Promise<User>;
     onDeleteUser: (id: number) => Promise<void>;
-    onResetData: () => void;
+    onResetData?: () => void;
     onReloadData: () => Promise<void>;
 }
 
@@ -70,6 +78,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const [propStatus, setPropStatus] = useState('ACTIVE');
     const [isSubmittingProp, setIsSubmittingProp] = useState(false);
 
+    // Decommission (Soft Delete & TTL) State
+    const [propertySubTab, setPropertySubTab] = useState<'active' | 'archived'>('active');
+    const [archivedProperties, setArchivedProperties] = useState<Property[]>([]);
+    const [isLoadingArchived, setIsLoadingArchived] = useState(false);
+    const [decommissionProp, setDecommissionProp] = useState<Property | null>(null);
+    const [isDecommissionModalOpen, setIsDecommissionModalOpen] = useState(false);
+    const [viewingSnapshot, setViewingSnapshot] = useState<PropertyArchiveSnapshot | null>(null);
+    const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
+    const [loadingSnapshotId, setLoadingSnapshotId] = useState<number | null>(null);
+    const [restoringId, setRestoringId] = useState<number | null>(null);
+
+    const loadArchivedProperties = async () => {
+        setIsLoadingArchived(true);
+        try {
+            const list = await apiService.getArchivedProperties();
+            setArchivedProperties(list);
+        } catch (err) {
+            console.error('Failed to load archived properties:', err);
+        } finally {
+            setIsLoadingArchived(false);
+        }
+    };
+
+    useEffect(() => {
+        loadArchivedProperties();
+    }, []);
+
     // User Modal State
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -91,7 +126,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setTestResult({ status: 'testing', message: 'Pinging Spring Boot REST endpoint...' });
         try {
             const startTime = performance.now();
-            const response = await fetch(`${config.baseUrl}/properties`, { method: 'GET' }).catch(() => null);
+            let base = (config.baseUrl || '').trim().replace(/\/+$/, '');
+            if (!base.endsWith('/api')) {
+                base = `${base}/api`;
+            }
+            const testUrl = `${base}/properties`;
+            const response = await fetch(testUrl, { method: 'GET' }).catch(() => null);
             const elapsed = Math.round(performance.now() - startTime);
 
             if (response && response.ok) {
@@ -102,7 +142,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             } else {
                 setTestResult({
                     status: 'failed',
-                    message: `Server responded with HTTP ${response ? response.status : 'ERR'}. Check backend service.`,
+                    message: `Server responded with HTTP ${response ? response.status : 'ERR'}. Check backend service logs.`,
                 });
             }
         } catch {
@@ -186,13 +226,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         }
     };
 
-    const handleDeleteProperty = async (id: number, name: string) => {
-        if (!confirm(`Are you sure you want to delete property "${name}"?`)) return;
+    const openDecommissionModal = (prop: Property) => {
+        setDecommissionProp(prop);
+        setIsDecommissionModalOpen(true);
+    };
+
+    const handleConfirmSoftDelete = async (propertyId: number, data: PropertySoftDeleteRequest) => {
+        await apiService.softDeleteProperty(propertyId, data);
+        await Promise.all([onReloadData(), loadArchivedProperties()]);
+    };
+
+    const handleRestoreProperty = async (propertyId: number, propertyName: string) => {
+        if (!confirm(`Are you sure you want to restore property "${propertyName}" back to active status?`)) return;
+        setRestoringId(propertyId);
         try {
-            await onDeleteProperty(id);
-            await onReloadData();
+            await apiService.restoreProperty(propertyId);
+            await Promise.all([onReloadData(), loadArchivedProperties()]);
         } catch (err: any) {
-            alert(`Failed to delete property: ${err.message || 'Check backend logs'}`);
+            alert(`Failed to restore property: ${err.message || 'Check backend logs'}`);
+        } finally {
+            setRestoringId(null);
+        }
+    };
+
+    const handleViewSnapshot = async (propertyId: number) => {
+        setLoadingSnapshotId(propertyId);
+        try {
+            const snapshot = await apiService.getPropertySnapshot(propertyId);
+            setViewingSnapshot(snapshot);
+            setIsSnapshotModalOpen(true);
+        } catch (err: any) {
+            alert(`Failed to load snapshot: ${err.message || 'Check backend logs'}`);
+        } finally {
+            setLoadingSnapshotId(null);
         }
     };
 
@@ -263,61 +329,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     return (
         <div className="flex flex-col w-full gap-6">
-            {/* Action Bar */}
-            <div className="flex items-center justify-end gap-2">
-                <button
-                    onClick={onReloadData}
-                    className="h-9 px-3.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
-                    title="Reload latest state from Spring Boot backend"
-                >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Refresh State</span>
-                </button>
-                <button
-                    onClick={() => {
-                        if (confirm('Wipe all mock and test records from the database and local storage to start clean?')) {
-                            onResetData();
-                        }
-                    }}
-                    className="h-9 px-3.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
-                    title="Wipes transactional mock data from PostgreSQL database so you can manually test"
-                >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Clean All Mock Data</span>
-                </button>
-            </div>
-
             {/* Navigation Tabs */}
             <div className="flex border-b border-slate-200 gap-2 bg-white px-5 rounded-xl shadow-xs">
                 <button
                     onClick={() => setActiveTab('properties')}
-                    className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${
-                        activeTab === 'properties'
+                    className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'properties'
                             ? 'border-blue-600 text-blue-600'
                             : 'border-transparent text-slate-500 hover:text-slate-800'
-                    }`}
+                        }`}
                 >
                     <Building2 className="w-4 h-4" />
                     <span>Properties ({properties.length})</span>
                 </button>
                 <button
                     onClick={() => setActiveTab('users')}
-                    className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${
-                        activeTab === 'users'
+                    className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'users'
                             ? 'border-blue-600 text-blue-600'
                             : 'border-transparent text-slate-500 hover:text-slate-800'
-                    }`}
+                        }`}
                 >
                     <Users className="w-4 h-4" />
                     <span>Staff &amp; Users ({users.length})</span>
                 </button>
                 <button
                     onClick={() => setActiveTab('backend')}
-                    className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${
-                        activeTab === 'backend'
+                    className={`py-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'backend'
                             ? 'border-blue-600 text-blue-600'
                             : 'border-transparent text-slate-500 hover:text-slate-800'
-                    }`}
+                        }`}
                 >
                     <Server className="w-4 h-4" />
                     <span>Backend &amp; API Integration</span>
@@ -327,121 +366,309 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {/* TAB 1: PROPERTIES (/api/properties) */}
             {activeTab === 'properties' && (
                 <div className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h2 className="text-base font-bold text-slate-900 font-display">
-                                Connected Properties ({properties.length})
-                            </h2>
-                            <p className="text-xs text-slate-500">
-                                CRUD endpoints connected to <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-700">/api/properties</code>
-                            </p>
+                    {/* Header & Subtabs */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setPropertySubTab('active')}
+                                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                    propertySubTab === 'active'
+                                        ? 'bg-blue-600 text-white shadow-xs'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                                <Building2 className="w-3.5 h-3.5" />
+                                <span>Active Properties ({properties.length})</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPropertySubTab('archived');
+                                    loadArchivedProperties();
+                                }}
+                                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                    propertySubTab === 'archived'
+                                        ? 'bg-amber-600 text-white shadow-xs'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                                <Archive className="w-3.5 h-3.5" />
+                                <span>Decommission Queue / TTL ({archivedProperties.length})</span>
+                                {archivedProperties.length > 0 && (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                                        propertySubTab === 'archived' ? 'bg-amber-700 text-white' : 'bg-amber-200 text-amber-900'
+                                    }`}>
+                                        {archivedProperties.length}
+                                    </span>
+                                )}
+                            </button>
                         </div>
-                        <button
-                            type="button"
-                            onClick={openAddPropertyModal}
-                            className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
-                        >
-                            <Plus className="w-4 h-4" />
-                            <span>Add New Property</span>
-                        </button>
-                    </div>
 
-                    {properties.length === 0 ? (
-                        <div className="bg-white p-12 text-center rounded-xl border border-dashed border-slate-300 flex flex-col items-center gap-3">
-                            <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center">
-                                <Building2 className="w-6 h-6" />
-                            </div>
-                            <span className="text-sm font-bold text-slate-700">No PG Properties Connected</span>
-                            <span className="text-xs text-slate-400 max-w-sm">
-                                No properties were found in the database. Add your first PG property to start managing rooms and tenants.
-                            </span>
+                        {propertySubTab === 'active' ? (
                             <button
                                 type="button"
                                 onClick={openAddPropertyModal}
-                                className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors"
+                                className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
                             >
-                                + Add First PG
+                                <Plus className="w-4 h-4" />
+                                <span>Add New Property</span>
                             </button>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {properties.map(prop => (
-                                <div
-                                    key={prop.id}
-                                    className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col justify-between gap-4 hover:border-slate-300 transition-colors"
-                                >
-                                    <div className="flex flex-col gap-2.5">
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                                                        {prop.code || `PROP-${prop.id}`}
-                                                    </span>
-                                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                                        {prop.status}
-                                                    </span>
-                                                </div>
-                                                <h3 className="text-sm font-bold text-slate-900 mt-1">
-                                                    {prop.name}
-                                                </h3>
-                                            </div>
-                                        </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={loadArchivedProperties}
+                                className="h-8 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                            >
+                                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingArchived ? 'animate-spin' : ''}`} />
+                                <span>Refresh Queue</span>
+                            </button>
+                        )}
+                    </div>
 
-                                        <div className="flex flex-col gap-1.5 text-xs text-slate-600 pt-2 border-t border-slate-100">
-                                            <div className="flex items-center gap-1.5">
-                                                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                <span className="truncate">{prop.address || 'Indiranagar'}, {prop.city || 'Bengaluru'}</span>
-                                            </div>
-                                            {prop.contactNumber && (
-                                                <div className="flex items-center gap-1.5">
-                                                    <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                    <span className="font-mono">{prop.contactNumber}</span>
-                                                </div>
-                                            )}
-                                            {prop.contactEmail && (
-                                                <div className="flex items-center gap-1.5">
-                                                    <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                    <span className="truncate font-mono">{prop.contactEmail}</span>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-lg text-center text-xs">
-                                            <div>
-                                                <span className="block text-[10px] text-slate-400 uppercase font-semibold">Type</span>
-                                                <span className="font-bold text-slate-800">{prop.propertyType || 'PG'}</span>
-                                            </div>
-                                            <div>
-                                                <span className="block text-[10px] text-slate-400 uppercase font-semibold">Floors</span>
-                                                <span className="font-bold text-slate-800">{prop.totalFloors || 3}</span>
-                                            </div>
-                                            <div>
-                                                <span className="block text-[10px] text-slate-400 uppercase font-semibold">Rooms</span>
-                                                <span className="font-bold text-slate-800">{prop.totalRooms || 25}</span>
-                                            </div>
-                                        </div>
+                    {/* SUB-VIEW 1: ACTIVE PROPERTIES */}
+                    {propertySubTab === 'active' && (
+                        <>
+                            {properties.length === 0 ? (
+                                <div className="bg-white p-12 text-center rounded-xl border border-dashed border-slate-300 flex flex-col items-center gap-3">
+                                    <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center">
+                                        <Building2 className="w-6 h-6" />
                                     </div>
-
-                                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                                        <button
-                                            type="button"
-                                            onClick={() => openEditPropertyModal(prop)}
-                                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
-                                        >
-                                            <Edit2 className="w-3 h-3" />
-                                            <span>Edit</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleDeleteProperty(prop.id, prop.name)}
-                                            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
-                                        >
-                                            <Trash2 className="w-3 h-3" />
-                                            <span>Delete</span>
-                                        </button>
-                                    </div>
+                                    <span className="text-sm font-bold text-slate-700">No PG Properties Connected</span>
+                                    <span className="text-xs text-slate-400 max-w-sm">
+                                        No active properties were found in the database. Add your first PG property to start managing rooms and tenants.
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={openAddPropertyModal}
+                                        className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors"
+                                    >
+                                        + Add First PG
+                                    </button>
                                 </div>
-                            ))}
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {properties.map(prop => (
+                                        <div
+                                            key={prop.id}
+                                            className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col justify-between gap-4 hover:border-slate-300 transition-colors"
+                                        >
+                                            <div className="flex flex-col gap-2.5">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                                                {prop.code || `PROP-${prop.id}`}
+                                                            </span>
+                                                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                                {prop.status}
+                                                            </span>
+                                                        </div>
+                                                        <h3 className="text-sm font-bold text-slate-900 mt-1">
+                                                            {prop.name}
+                                                        </h3>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex flex-col gap-1.5 text-xs text-slate-600 pt-2 border-t border-slate-100">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                        <span className="truncate">{prop.address || 'Indiranagar'}, {prop.city || 'Bengaluru'}</span>
+                                                    </div>
+                                                    {prop.contactNumber && (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                            <span className="font-mono">{prop.contactNumber}</span>
+                                                        </div>
+                                                    )}
+                                                    {prop.contactEmail && (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                            <span className="truncate font-mono">{prop.contactEmail}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-lg text-center text-xs">
+                                                    <div>
+                                                        <span className="block text-[10px] text-slate-400 uppercase font-semibold">Type</span>
+                                                        <span className="font-bold text-slate-800">{prop.propertyType || 'PG'}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="block text-[10px] text-slate-400 uppercase font-semibold">Floors</span>
+                                                        <span className="font-bold text-slate-800">{prop.totalFloors || 3}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="block text-[10px] text-slate-400 uppercase font-semibold">Rooms</span>
+                                                        <span className="font-bold text-slate-800">{prop.totalRooms || 25}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openEditPropertyModal(prop)}
+                                                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                                                >
+                                                    <Edit2 className="w-3 h-3" />
+                                                    <span>Edit</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openDecommissionModal(prop)}
+                                                    title="Protected Decommission: Creates Audit Snapshot & 30-day TTL safety window"
+                                                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/70 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                                                >
+                                                    <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                                                    <span>Decommission (TTL 30d)</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {/* SUB-VIEW 2: DECOMMISSIONED (TTL TRASH) */}
+                    {propertySubTab === 'archived' && (
+                        <div className="flex flex-col gap-4">
+                            {/* Security & TTL Banner */}
+                            <div className="bg-gradient-to-r from-amber-50/90 to-orange-50/90 border border-amber-200/90 rounded-xl p-4 flex items-start gap-3.5 shadow-xs">
+                                <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-600 border border-amber-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                                    <Clock className="w-5 h-5" />
+                                </div>
+                                <div className="text-xs text-amber-950 flex flex-col gap-1">
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-bold text-amber-950 text-sm">
+                                            30-Day TTL Grace Period &amp; Audit Snapshot Protection
+                                        </h4>
+                                        <span className="text-[10px] font-bold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300">
+                                            Self-Purging Engine
+                                        </span>
+                                    </div>
+                                    <p className="text-amber-800/90 leading-relaxed">
+                                        Properties in this queue are removed from active tenant operations and bookings. A frozen snapshot of all rooms, tenants, admissions, and balances is permanently recorded. You may inspect the audit manifest or restore the property anytime before its 30-day TTL countdown expires.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {isLoadingArchived ? (
+                                <div className="bg-white p-12 text-center rounded-xl border border-slate-200 flex flex-col items-center gap-3">
+                                    <RefreshCw className="w-6 h-6 text-amber-600 animate-spin" />
+                                    <span className="text-xs font-semibold text-slate-600">Loading decommissioned properties...</span>
+                                </div>
+                            ) : archivedProperties.length === 0 ? (
+                                <div className="bg-white p-12 text-center rounded-xl border border-dashed border-slate-300 flex flex-col items-center gap-3">
+                                    <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center">
+                                        <Archive className="w-6 h-6" />
+                                    </div>
+                                    <span className="text-sm font-bold text-slate-700">Decommission Queue is Empty</span>
+                                    <span className="text-xs text-slate-400 max-w-sm">
+                                        No properties are currently scheduled for decommission. When a property is soft-deleted, it will appear here for 30 days before permanent purging.
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {archivedProperties.map(prop => {
+                                        const daysLeft = prop.daysRemaining ?? 30;
+                                        const isUrgent = daysLeft <= 5;
+
+                                        return (
+                                            <div
+                                                key={prop.id}
+                                                className="bg-white p-5 rounded-xl border border-amber-200/80 shadow-xs flex flex-col justify-between gap-4 relative overflow-hidden"
+                                            >
+                                                {/* Top stripe */}
+                                                <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500" />
+
+                                                <div className="flex flex-col gap-2.5">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs font-mono font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                                                    {prop.code || `PROP-${prop.id}`}
+                                                                </span>
+                                                                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                                                                    DECOMMISSIONED
+                                                                </span>
+                                                            </div>
+                                                            <h3 className="text-sm font-bold text-slate-900 mt-1 line-through decoration-slate-400">
+                                                                {prop.name}
+                                                            </h3>
+                                                        </div>
+
+                                                        {/* TTL Countdown pill */}
+                                                        <div className={`text-right flex flex-col items-end`}>
+                                                            <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${
+                                                                isUrgent
+                                                                    ? 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
+                                                                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                                                            }`}>
+                                                                <Clock className="w-3 h-3" />
+                                                                {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Reason & Audit Metadata */}
+                                                    <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100 flex flex-col gap-1 text-xs">
+                                                        <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                                            <span>Reason for Decommission:</span>
+                                                            <span className="font-mono text-[10px] text-slate-400">By {prop.deletedBy || 'ADMIN'}</span>
+                                                        </div>
+                                                        <p className="font-medium text-slate-700 italic">
+                                                            &ldquo;{prop.deletionReason || 'Administrative decommissioning'}&rdquo;
+                                                        </p>
+                                                        {prop.ttlExpiresAt && (
+                                                            <span className="text-[10px] text-slate-400 mt-1">
+                                                                Auto-purges on: <strong className="text-slate-600">{new Date(prop.ttlExpiresAt).toLocaleDateString()}</strong>
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex flex-col gap-1 text-xs text-slate-500 pt-1">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                            <span className="truncate">{prop.address || 'Indiranagar'}, {prop.city || 'Bengaluru'}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleViewSnapshot(prop.id)}
+                                                        disabled={loadingSnapshotId === prop.id}
+                                                        className="px-2.5 py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border border-cyan-200"
+                                                    >
+                                                        {loadingSnapshotId === prop.id ? (
+                                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                        ) : (
+                                                            <FileText className="w-3.5 h-3.5 text-cyan-700" />
+                                                        )}
+                                                        <span>View Manifest</span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRestoreProperty(prop.id, prop.name)}
+                                                        disabled={restoringId === prop.id}
+                                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+                                                    >
+                                                        {restoringId === prop.id ? (
+                                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                        ) : (
+                                                            <RotateCcw className="w-3.5 h-3.5" />
+                                                        )}
+                                                        <span>Restore Property</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -487,13 +714,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                             </div>
                                         </div>
 
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                            u.role === 'ADMIN'
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${u.role === 'ADMIN'
                                                 ? 'bg-purple-50 text-purple-700 border-purple-200'
                                                 : u.role === 'PROPERTY_MANAGER'
                                                     ? 'bg-blue-50 text-blue-700 border-blue-200'
                                                     : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        }`}>
+                                            }`}>
                                             {u.role.replace('_', ' ')}
                                         </span>
                                     </div>
@@ -588,13 +814,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                             {testResult.status !== 'idle' && (
                                 <div
-                                    className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
-                                        testResult.status === 'success'
+                                    className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${testResult.status === 'success'
                                             ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                             : testResult.status === 'testing'
                                                 ? 'bg-blue-50 text-blue-800 border-blue-200'
                                                 : 'bg-red-50 text-red-800 border-red-200'
-                                    }`}
+                                        }`}
                                 >
                                     {testResult.status === 'testing' && (
                                         <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
@@ -992,6 +1217,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </div>
                 </div>
             )}
+
+            {/* Decommission (Soft Delete & TTL) Security Modal */}
+            {decommissionProp && (
+                <PropertySoftDeleteModal
+                    property={decommissionProp}
+                    isOpen={isDecommissionModalOpen}
+                    onClose={() => {
+                        setIsDecommissionModalOpen(false);
+                        setDecommissionProp(null);
+                    }}
+                    onConfirm={handleConfirmSoftDelete}
+                />
+            )}
+
+            {/* Audit Manifest Snapshot Viewer Modal */}
+            <PropertySnapshotModal
+                snapshot={viewingSnapshot}
+                isOpen={isSnapshotModalOpen}
+                onClose={() => {
+                    setIsSnapshotModalOpen(false);
+                    setViewingSnapshot(null);
+                }}
+            />
         </div>
     );
 };

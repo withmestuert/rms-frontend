@@ -25,6 +25,7 @@ import { apiService } from '../../services/apiService';
 import { VacateRequestsModal } from './VacateRequestsModal';
 import {
     AVAILABLE_MONTHS,
+    getAvailableMonths,
     getMonthlyRentSummary,
     MonthTenantPaymentStatus,
 } from '../../utils/monthlyRentTracker';
@@ -52,13 +53,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     onQuickAdmission,
     onRecordPayment,
 }) => {
+    const availableMonths = useMemo(() => {
+        return getAvailableMonths(invoices, tenants);
+    }, [invoices, tenants]);
+
     const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
-    const [selectedMonth, setSelectedMonth] = useState<string>('October 2024');
+    const [selectedMonth, setSelectedMonth] = useState<string>(
+        () => availableMonths[0]?.key || `${new Date().toLocaleString('en-US', { month: 'long' })} ${new Date().getFullYear()}`
+    );
     const [statusFilter, setStatusFilter] = useState<'all' | 'upi' | 'cash' | 'pending'>('all');
     const [markedPaidLoading, setMarkedPaidLoading] = useState<string | null>(null);
     const [reminderSentTenant, setReminderSentTenant] = useState<string | null>(null);
     const [vacateRequests, setVacateRequests] = useState<VacateRequest[]>([]);
     const [isVacateModalOpen, setIsVacateModalOpen] = useState(false);
+
+    // Keep selectedMonth aligned with available months that hold data
+    useEffect(() => {
+        if (availableMonths.length > 0 && !availableMonths.some(m => m.key.toLowerCase() === selectedMonth.toLowerCase())) {
+            setSelectedMonth(availableMonths[0].key);
+        }
+    }, [availableMonths]);
 
     const loadVacateRequests = React.useCallback(async () => {
         try {
@@ -243,7 +257,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     }}
                                     className="h-8.5 pl-8 pr-8 bg-slate-50 hover:bg-slate-100/80 text-slate-800 text-xs font-semibold rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all cursor-pointer appearance-none"
                                 >
-                                    {AVAILABLE_MONTHS.map(m => (
+                                    {availableMonths.map(m => (
                                         <option key={m.key} value={m.key}>
                                             {m.label}
                                         </option>
@@ -439,7 +453,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                                                     </span>
                                                                 )}
                                                                 <div className="text-[10px] font-mono text-slate-400 mt-0.5">
-                                                                    {record.paidOn || '05 Oct 2024'} {record.receiptNumber ? `• ${record.receiptNumber}` : ''}
+                                                                    {record.paidOn || `05 ${selectedMonth.slice(0, 3)} ${selectedMonth.slice(-4)}`} {record.receiptNumber ? `• ${record.receiptNumber}` : ''}
                                                                 </div>
                                                             </div>
                                                         ) : (

@@ -9,6 +9,62 @@ export type PageId =
     | 'settings'
     | 'payment-history';
 
+export enum RoomTypeEnum {
+    SINGLE = 'Single',
+    DOUBLE = 'Double',
+    TRIPLE = 'Triple',
+    FOUR_SHARING = 'Four-Sharing',
+    DORMITORY = 'Dormitory',
+}
+
+export const CAPACITY_TO_ROOM_TYPE_MAP: Record<number, RoomTypeEnum> = {
+    1: RoomTypeEnum.SINGLE,
+    2: RoomTypeEnum.DOUBLE,
+    3: RoomTypeEnum.TRIPLE,
+    4: RoomTypeEnum.FOUR_SHARING,
+    5: RoomTypeEnum.DORMITORY,
+};
+
+export const ROOM_TYPE_TO_CAPACITY_MAP: Record<string, number> = {
+    [RoomTypeEnum.SINGLE]: 1,
+    'single': 1,
+    'SINGLE': 1,
+    [RoomTypeEnum.DOUBLE]: 2,
+    'double': 2,
+    'DOUBLE': 2,
+    [RoomTypeEnum.TRIPLE]: 3,
+    'triple': 3,
+    'TRIPLE': 3,
+    [RoomTypeEnum.FOUR_SHARING]: 4,
+    'four-sharing': 4,
+    'FOUR-SHARING': 4,
+    [RoomTypeEnum.DORMITORY]: 5,
+    'dormitory': 5,
+    'DORMITORY': 5,
+};
+
+export const getRoomTypeForCapacity = (capacity: number): string => {
+    if (CAPACITY_TO_ROOM_TYPE_MAP[capacity]) {
+        return CAPACITY_TO_ROOM_TYPE_MAP[capacity];
+    }
+    if (capacity > 5) {
+        return RoomTypeEnum.DORMITORY;
+    }
+    return `${capacity}-Sharing`;
+};
+
+export const getCapacityForRoomType = (roomType: string): number => {
+    const trimmed = roomType?.trim();
+    if (ROOM_TYPE_TO_CAPACITY_MAP[trimmed]) {
+        return ROOM_TYPE_TO_CAPACITY_MAP[trimmed];
+    }
+    const lower = trimmed?.toLowerCase();
+    if (ROOM_TYPE_TO_CAPACITY_MAP[lower]) {
+        return ROOM_TYPE_TO_CAPACITY_MAP[lower];
+    }
+    return 1;
+};
+
 export interface Room {
     roomNumber: string;
     floor: string | number;
@@ -32,6 +88,8 @@ export interface Tenant {
     roomNumber: string;
     propertyId?: number;
     monthlyRent: number;
+    advancePaid?: number;
+    securityDeposit?: number;
     joinedDate: string;
     hometown: string;
     profession: string;
@@ -107,15 +165,21 @@ export interface Transaction {
 export interface Invoice {
     id: string;
     invoiceNumber: string;
+    tenantUid?: string;
     tenantName: string;
     roomNumber: string;
+    roomNo?: string;
     propertyId?: number;
     monthYear: string;
     amount: number;
+    paidAmount?: number;
+    remainingBalance?: number;
     dueDate: string;
-    status: 'paid' | 'pending' | 'overdue';
+    status: 'paid' | 'partially_paid' | 'pending' | 'overdue';
     paidOn?: string;
     paymentMode?: string;
+    transactionRef?: string;
+    createdAt?: string;
 }
 
 export interface Property {
@@ -131,6 +195,37 @@ export interface Property {
     contactNumber?: string;
     contactEmail?: string;
     status: string;
+    isDeleted?: boolean;
+    deletedAt?: string;
+    deletedBy?: string;
+    deletionReason?: string;
+    ttlExpiresAt?: string;
+    daysRemaining?: number;
+    archiveSnapshotId?: number;
+}
+
+export interface PropertySoftDeleteRequest {
+    confirmationName: string;
+    adminPin: string;
+    reason: string;
+    ttlDays?: number;
+    deletedBy?: string;
+}
+
+export interface PropertyArchiveSnapshot {
+    id: number;
+    propertyId: number;
+    propertyName: string;
+    propertyCode?: string;
+    archivedBy: string;
+    deletionReason?: string;
+    ttlDays: number;
+    totalRooms: number;
+    totalResidents: number;
+    totalRevenuePotential: number;
+    totalAdvanceHeld: number;
+    snapshotJson: string;
+    archivedAt: string;
 }
 
 export interface User {
@@ -193,5 +288,49 @@ export interface WhatsAppPackage {
     payRentUrl: string;
     upiPayLink: string;
     receiptNumber: string;
+}
+
+export interface ReportSummary {
+    totalTargetRent: number;
+    totalCollectedRent: number;
+    portfolioEfficiency: number;
+    totalEnrolments: number;
+    workingTenantsCount: number;
+    otherTenantsCount: number;
+    workingPercent: number;
+    otherPercent: number;
+    totalHometowns: number;
+    topHometown: string;
+    topHometownPercent: number;
+}
+
+export interface PropertyPerformanceReport {
+    id: number;
+    name: string;
+    totalRooms: number;
+    targetRent: number;
+    collectedRent: number;
+    rate: number;
+    status: string;
+}
+
+export interface MonthlyIntakeReport {
+    month: string;
+    count: number;
+    label: string;
+}
+
+export interface DemographicsReport {
+    professions: {
+        name: string;
+        count: number;
+        percent: number;
+    }[];
+    hometowns: {
+        city: string;
+        count: number;
+        percent: number;
+        color: string;
+    }[];
 }
 

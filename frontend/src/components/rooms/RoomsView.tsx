@@ -9,7 +9,13 @@ import {
     Calendar,
     Sparkles,
 } from 'lucide-react';
-import { Room, PageId } from '../../types';
+import {
+    Room,
+    PageId,
+    RoomTypeEnum,
+    getRoomTypeForCapacity,
+    getCapacityForRoomType,
+} from '../../types';
 
 
 
@@ -73,12 +79,56 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
     const [roomForm, setRoomForm] = useState({
         roomNo: '',
         floor: '',
-        roomType: '',
+        roomType: RoomTypeEnum.SINGLE,
         rentPerMonth: '',
         occupancy: '1',
     });
 
     const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+
+    // Handlers for Add Room: Capacity is user/admin changeable driver, chained with Room Type dropdown
+    const handleAddRoomCapacityChange = (val: string) => {
+        const parsed = parseInt(val, 10);
+        const validCapacity = isNaN(parsed) || parsed < 1 ? 1 : parsed;
+        const linkedType = getRoomTypeForCapacity(validCapacity);
+        setRoomForm(prev => ({
+            ...prev,
+            occupancy: val,
+            roomType: linkedType,
+        }));
+    };
+
+    const handleAddRoomTypeChange = (selectedType: string) => {
+        const linkedCapacity = getCapacityForRoomType(selectedType);
+        setRoomForm(prev => ({
+            ...prev,
+            roomType: selectedType,
+            occupancy: String(linkedCapacity),
+        }));
+    };
+
+    // Handlers for Edit Room: Capacity is user/admin changeable driver, chained with Room Type dropdown
+    const handleEditRoomCapacityChange = (val: string) => {
+        if (!editingRoom) return;
+        const parsed = parseInt(val, 10);
+        const validCapacity = isNaN(parsed) || parsed < 1 ? 1 : parsed;
+        const linkedType = getRoomTypeForCapacity(validCapacity);
+        setEditingRoom({
+            ...editingRoom,
+            capacity: validCapacity,
+            roomType: linkedType,
+        });
+    };
+
+    const handleEditRoomTypeChange = (selectedType: string) => {
+        if (!editingRoom) return;
+        const linkedCapacity = getCapacityForRoomType(selectedType);
+        setEditingRoom({
+            ...editingRoom,
+            roomType: selectedType,
+            capacity: linkedCapacity,
+        });
+    };
 
     //Delete Room Handler
 
@@ -99,7 +149,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                 {
                     floor: editingRoom.floor,
                     roomType:
-                        editingRoom.roomType ?? '',
+                        editingRoom.roomType ?? getRoomTypeForCapacity(editingRoom.capacity),
                     rentPerMonth:
                         editingRoom.rent,
                     occupancy:
@@ -197,7 +247,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
             setRoomForm({
                 roomNo: '',
                 floor: '',
-                roomType: '',
+                roomType: RoomTypeEnum.SINGLE,
                 rentPerMonth: '',
                 occupancy: '1',
             });
@@ -224,7 +274,16 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
             {/* Action Bar */}
             <div className="flex items-center justify-end">
                 <button
-                    onClick={() => setShowCreateRoom(true)}
+                    onClick={() => {
+                        setRoomForm({
+                            roomNo: '',
+                            floor: '',
+                            roomType: RoomTypeEnum.SINGLE,
+                            rentPerMonth: '',
+                            occupancy: '1',
+                        });
+                        setShowCreateRoom(true);
+                    }}
                     className="h-9 px-4 bg-[#091426] hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
                 >
                     <Plus className="w-4 h-4" />
@@ -383,9 +442,13 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                                             <h2 className="font-mono text-base font-bold text-slate-900 group-hover:text-cyan-950 transition-colors">
                                                 Room {room.roomNumber}
                                             </h2>
-                                            <span className="text-xs text-slate-500">
-                                                Floor {room.floor}
-                                            </span>
+                                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                                <span>Floor {room.floor}</span>
+                                                <span>•</span>
+                                                <span className="font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                                                    {room.roomType || getRoomTypeForCapacity(room.capacity)}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -477,7 +540,14 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                             <div className="flex items-center gap-2 mb-2">
                                 <button
                                     type="button"
-                                    onClick={() => setEditingRoom(room)}
+                                    onClick={() =>
+                                        setEditingRoom({
+                                            ...room,
+                                            roomType:
+                                                room.roomType ||
+                                                getRoomTypeForCapacity(room.capacity),
+                                        })
+                                    }
                                     className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors"
                                 >
                                     Edit Room
@@ -650,64 +720,62 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                                 </div>
                             </div>
 
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-semibold text-slate-700">
-                                    Room Type *
-                                </label>
-
-                                <input
-                                    type="text"
-                                    value={roomForm.roomType}
-                                    onChange={e =>
-                                        setRoomForm(prev => ({
-                                            ...prev,
-                                            roomType: e.target.value,
-                                        }))
-                                    }
-                                    placeholder="e.g. SINGLE / DOUBLE"
-                                    className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none"
-                                />
-                            </div>
-
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="flex flex-col gap-1.5">
-                                    <label className="text-xs font-semibold text-slate-700">
-                                        Monthly Rent *
-                                    </label>
-
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={roomForm.rentPerMonth}
-                                        onChange={e =>
-                                            setRoomForm(prev => ({
-                                                ...prev,
-                                                rentPerMonth: e.target.value,
-                                            }))
-                                        }
-                                        placeholder="8000"
-                                        className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none"
-                                    />
-                                </div>
-
-                                <div className="flex flex-col gap-1.5">
-                                    <label className="text-xs font-semibold text-slate-700">
-                                        Capacity *
+                                    <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                        <span>Capacity *</span>
+                                        <span className="text-[10px] text-blue-600 font-medium">Editable</span>
                                     </label>
 
                                     <input
                                         type="number"
                                         min="1"
+                                        max="10"
                                         value={roomForm.occupancy}
-                                        onChange={e =>
-                                            setRoomForm(prev => ({
-                                                ...prev,
-                                                occupancy: e.target.value,
-                                            }))
-                                        }
-                                        className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none"
+                                        onChange={e => handleAddRoomCapacityChange(e.target.value)}
+                                        placeholder="1"
+                                        className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none font-mono"
                                     />
                                 </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                        <span>Room Type *</span>
+                                        <span className="text-[10px] text-emerald-600 font-medium">Auto-Chained</span>
+                                    </label>
+
+                                    <select
+                                        value={roomForm.roomType}
+                                        onChange={e => handleAddRoomTypeChange(e.target.value)}
+                                        className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none text-xs font-medium text-slate-800"
+                                    >
+                                        <option value={RoomTypeEnum.SINGLE}>Single (1 Person)</option>
+                                        <option value={RoomTypeEnum.DOUBLE}>Double (2 Persons)</option>
+                                        <option value={RoomTypeEnum.TRIPLE}>Triple (3 Persons)</option>
+                                        <option value={RoomTypeEnum.FOUR_SHARING}>Four-Sharing (4 Persons)</option>
+                                        <option value={RoomTypeEnum.DORMITORY}>Dormitory (5+ Persons)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-semibold text-slate-700">
+                                    Monthly Rent (₹) *
+                                </label>
+
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={roomForm.rentPerMonth}
+                                    onChange={e =>
+                                        setRoomForm(prev => ({
+                                            ...prev,
+                                            rentPerMonth: e.target.value,
+                                        }))
+                                    }
+                                    placeholder="8000"
+                                    className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none"
+                                />
                             </div>
 
                             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
@@ -781,67 +849,62 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                                     />
                                 </div>
 
-                                <div>
-                                    <label className="text-xs font-semibold text-slate-700">
-                                        Room Type
-                                    </label>
-
-                                    <input
-                                        value={editingRoom.roomType}
-                                        onChange={e =>
-                                            setEditingRoom({
-                                                ...editingRoom,
-                                                roomType: e.target.value,
-                                            })
-                                        }
-                                        className="mt-1 w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                                    />
-                                </div>
-
                                 <div className="grid grid-cols-2 gap-3">
-
                                     <div>
-                                        <label className="text-xs font-semibold text-slate-700">
-                                            Monthly Rent
-                                        </label>
-
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={editingRoom.rent}
-                                            onChange={e =>
-                                                setEditingRoom({
-                                                    ...editingRoom,
-                                                    rent: Number(
-                                                        e.target.value
-                                                    ),
-                                                })
-                                            }
-                                            className="mt-1 w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-semibold text-slate-700">
-                                            Capacity
+                                        <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                            <span>Capacity</span>
+                                            <span className="text-[10px] text-blue-600 font-medium">Editable</span>
                                         </label>
 
                                         <input
                                             type="number"
                                             min="1"
+                                            max="10"
                                             value={editingRoom.capacity}
-                                            onChange={e =>
-                                                setEditingRoom({
-                                                    ...editingRoom,
-                                                    capacity: Number(
-                                                        e.target.value
-                                                    ),
-                                                })
-                                            }
-                                            className="mt-1 w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                                            onChange={e => handleEditRoomCapacityChange(e.target.value)}
+                                            className="mt-1 w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
                                         />
                                     </div>
 
+                                    <div>
+                                        <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                            <span>Room Type</span>
+                                            <span className="text-[10px] text-emerald-600 font-medium">Auto-Chained</span>
+                                        </label>
+
+                                        <select
+                                            value={editingRoom.roomType ?? getRoomTypeForCapacity(editingRoom.capacity)}
+                                            onChange={e => handleEditRoomTypeChange(e.target.value)}
+                                            className="mt-1 w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800"
+                                        >
+                                            <option value={RoomTypeEnum.SINGLE}>Single (1 Person)</option>
+                                            <option value={RoomTypeEnum.DOUBLE}>Double (2 Persons)</option>
+                                            <option value={RoomTypeEnum.TRIPLE}>Triple (3 Persons)</option>
+                                            <option value={RoomTypeEnum.FOUR_SHARING}>Four-Sharing (4 Persons)</option>
+                                            <option value={RoomTypeEnum.DORMITORY}>Dormitory (5+ Persons)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-700">
+                                        Monthly Rent (₹)
+                                    </label>
+
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={editingRoom.rent}
+                                        onChange={e =>
+                                            setEditingRoom({
+                                                ...editingRoom,
+                                                rent: Number(
+                                                    e.target.value
+                                                ),
+                                            })
+                                        }
+                                        className="mt-1 w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"
+                                    />
                                 </div>
 
                                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-600">

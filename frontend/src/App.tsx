@@ -335,17 +335,38 @@ export function App() {
         setTenants(prev => [createdTenant, ...prev]);
     };
 
-    const handleRecordPayment = async (invoiceId: string, paymentMode: string, transactionRef?: string) => {
-        await apiService.recordPayment(invoiceId, paymentMode, transactionRef);
-        const updatedInvoices = await apiService.getInvoices();
-        const updatedTxs = await apiService.getTransactions();
+    const handleRecordPayment = async (
+        invoiceId: string,
+        paymentMode: string,
+        transactionRef?: string,
+        paidOn?: string,
+        amount?: number
+    ) => {
+        await apiService.recordPayment(invoiceId, paymentMode, transactionRef, paidOn, amount);
+        const [updatedInvoices, updatedTxs] = await Promise.all([
+            apiService.getInvoices(undefined, undefined, selectedPropertyId ?? undefined),
+            apiService.getTransactions(undefined, selectedPropertyId ?? undefined),
+        ]);
         setInvoices(updatedInvoices);
         setTransactions(updatedTxs);
     };
 
+    const handleCreateInvoice = async (dto: {
+        tenantUid: string;
+        monthYear: string;
+        amount: number;
+        dueDate: string;
+        paymentMode?: string;
+    }) => {
+        const created = await apiService.createInvoice(dto);
+        const updatedInvoices = await apiService.getInvoices(undefined, undefined, selectedPropertyId ?? undefined);
+        setInvoices(updatedInvoices);
+        return created;
+    };
+
     const handleGenerateCycleInvoices = async (monthYear: string, dueDate: string) => {
-        const result = await apiService.generateCycleInvoices(monthYear, dueDate);
-        const updatedInvoices = await apiService.getInvoices();
+        const result = await apiService.generateCycleInvoices(monthYear, dueDate, selectedPropertyId ?? undefined);
+        const updatedInvoices = await apiService.getInvoices(undefined, undefined, selectedPropertyId ?? undefined);
         setInvoices(updatedInvoices);
         return result;
     };
@@ -373,12 +394,15 @@ export function App() {
         );
     }
 
+    const activeUser = users.find(u => u.role === 'ADMIN' || u.role === 'PROPERTY_MANAGER') ?? users[0] ?? null;
+
     return (
         <AppShell
             onQuickAdmission={() => handleNavigate('admissions')}
             properties={properties}
             selectedPropertyId={selectedPropertyId}
             onSelectProperty={handleSelectProperty}
+            currentUser={activeUser}
         >
             {backendError && (
                 <div className="mb-4 bg-amber-50 border border-amber-200/90 rounded-xl p-3.5 text-xs text-amber-900 flex items-center justify-between shadow-xs animate-in fade-in duration-150">
@@ -443,6 +467,7 @@ export function App() {
                                 tenant={selectedPaymentTenant || tenants[0]}
                                 allTenants={tenants}
                                 rooms={rooms}
+                                invoices={invoices}
                                 onSelectTenant={setSelectedPaymentTenant}
                                 onBack={() => navigate('/tenants')}
                             />
@@ -485,8 +510,10 @@ export function App() {
                     element={
                         <RentBillingView
                             invoices={invoices}
+                            tenants={tenants}
                             onRecordPayment={handleRecordPayment}
                             onGenerateCycle={handleGenerateCycleInvoices}
+                            onCreateInvoice={handleCreateInvoice}
                         />
                     }
                 />
@@ -506,6 +533,7 @@ export function App() {
                         <ReportsView
                             tenants={tenants}
                             admissions={admissions}
+                            propertyId={selectedPropertyId}
                         />
                     }
                 />

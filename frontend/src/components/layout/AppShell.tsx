@@ -26,6 +26,11 @@ import {
     X,
     PanelLeftClose,
     PanelLeftOpen,
+    ShieldAlert,
+    LogOut,
+    Mail,
+    Phone,
+    Shield,
 } from 'lucide-react';
 
 import { DesignSpecModal } from '../common/DesignSpecModal';
@@ -36,6 +41,8 @@ interface AppShellProps {
     properties?: Property[];
     selectedPropertyId?: number | null;
     onSelectProperty?: (property: Property) => void;
+    currentUser?: User | null;
+    onLogout?: () => void;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
@@ -44,6 +51,8 @@ export const AppShell: React.FC<AppShellProps> = ({
     properties: propsList,
     selectedPropertyId,
     onSelectProperty,
+    currentUser: currentUserProp,
+    onLogout,
 }) => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -54,8 +63,129 @@ export const AppShell: React.FC<AppShellProps> = ({
     const [selectedProperty, setSelectedProperty] = useState('');
     const [isPropertyDropdownOpen, setIsPropertyDropdownOpen] = useState(false);
     const [showNotificationToast, setShowNotificationToast] = useState(false);
+    const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+    const profileMenuRef = React.useRef<HTMLDivElement>(null);
     const [internalProperties, setInternalProperties] = useState<Property[]>([]);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+    const activeUser = currentUserProp ?? currentUser;
+
+    // Real-Time Notifications State (Vacate Requests & Pending Verifications ONLY)
+    const [notifications, setNotifications] = useState<{
+        id: string;
+        type: 'vacate_request' | 'verification_pending';
+        title: string;
+        subtitle: string;
+        detail: string;
+        targetPath: string;
+        badge: string;
+        badgeColor: string;
+        isRead: boolean;
+    }[]>([]);
+
+    const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('rms_read_notifications');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
+
+    const fetchRealtimeNotifications = React.useCallback(async () => {
+        try {
+            const [vacateReqs, allTenants] = await Promise.all([
+                apiService.getVacateRequests('PENDING').catch(() => []),
+                apiService.getTenants().catch(() => []),
+            ]);
+
+            const items: {
+                id: string;
+                type: 'vacate_request' | 'verification_pending';
+                title: string;
+                subtitle: string;
+                detail: string;
+                targetPath: string;
+                badge: string;
+                badgeColor: string;
+                isRead: boolean;
+            }[] = [];
+
+            // 1. Pending Vacate Requests
+            if (Array.isArray(vacateReqs)) {
+                vacateReqs
+                    .filter(v => v.status === 'PENDING')
+                    .forEach(v => {
+                        const id = `vacate-${v.id}`;
+                        items.push({
+                            id,
+                            type: 'vacate_request',
+                            title: 'Vacate Notice Received',
+                            subtitle: `${v.tenantName} • Room ${v.roomNo}`,
+                            detail: `Leaving: ${v.expectedLeavingDate} (${v.noticeDays}d notice) • Refund: ₹${Math.round(v.advanceRepayable).toLocaleString('en-IN')}`,
+                            targetPath: '/',
+                            badge: 'Vacate Request',
+                            badgeColor: 'bg-amber-100 text-amber-900 border-amber-200',
+                            isRead: readNotificationIds.includes(id),
+                        });
+                    });
+            }
+
+            // 2. Pending Advance Verifications
+            if (Array.isArray(allTenants)) {
+                allTenants
+                    .filter(t => (t.paymentStatus === 'pending' || (t as any).advancePaidStatus === 'PENDING') && t.status !== 'inactive' && t.status !== 'vacated')
+                    .forEach(t => {
+                        const id = `verify-${t.id}`;
+                        items.push({
+                            id,
+                            type: 'verification_pending',
+                            title: 'Advance Verification Pending',
+                            subtitle: `${t.name} • Room ${t.roomNumber}`,
+                            detail: `Advance deposit verification pending confirmation`,
+                            targetPath: '/tenants',
+                            badge: 'Verify Advance',
+                            badgeColor: 'bg-rose-100 text-rose-900 border-rose-200',
+                            isRead: readNotificationIds.includes(id),
+                        });
+                    });
+            }
+
+            setNotifications(items);
+        } catch (err) {
+            console.warn('Real-time notifications sync error:', err);
+        }
+    }, [readNotificationIds]);
+
+    useEffect(() => {
+        fetchRealtimeNotifications();
+        const interval = setInterval(fetchRealtimeNotifications, 15000); // 15s real-time poll
+        return () => clearInterval(interval);
+    }, [fetchRealtimeNotifications, location.pathname]);
+
+    const handleMarkAllRead = () => {
+        const allIds = notifications.map(n => n.id);
+        setReadNotificationIds(allIds);
+        localStorage.setItem('rms_read_notifications', JSON.stringify(allIds));
+        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    };
+
+    const handleNotificationClick = (item: {
+        id: string;
+        targetPath: string;
+        isRead: boolean;
+    }) => {
+        if (!item.isRead) {
+            const updated = [...readNotificationIds, item.id];
+            setReadNotificationIds(updated);
+            localStorage.setItem('rms_read_notifications', JSON.stringify(updated));
+            setNotifications(prev => prev.map(n => n.id === item.id ? { ...n, isRead: true } : n));
+        }
+        setShowNotificationToast(false);
+        navigate(item.targetPath);
+    };
+
+    const unreadCount = notifications.filter(n => !readNotificationIds.includes(n.id)).length;
 
     const properties = propsList && propsList.length > 0 ? propsList : internalProperties;
 
@@ -99,6 +229,8 @@ export const AppShell: React.FC<AppShellProps> = ({
             if (e.key === 'Escape') {
                 setIsSearchModalOpen(false);
                 setIsMobileSidebarOpen(false);
+                setIsProfileMenuOpen(false);
+                setShowNotificationToast(false);
             }
         };
 
@@ -106,6 +238,48 @@ export const AppShell: React.FC<AppShellProps> = ({
 
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+
+    // Close profile menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+                setIsProfileMenuOpen(false);
+            }
+        };
+
+        if (isProfileMenuOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isProfileMenuOpen]);
+
+    // Close menus on route change
+    useEffect(() => {
+        setIsProfileMenuOpen(false);
+        setShowNotificationToast(false);
+    }, [location.pathname]);
+
+    const handleLogout = () => {
+        if (!confirm('Are you sure you want to log out of RMS?')) {
+            return;
+        }
+        setIsProfileMenuOpen(false);
+        if (onLogout) {
+            onLogout();
+        } else {
+            try {
+                sessionStorage.clear();
+                localStorage.removeItem('rms_auth_token');
+                localStorage.removeItem('rms_session');
+            } catch {
+                // ignore
+            }
+            navigate('/dashboard');
+            alert('You have logged out successfully.');
+        }
+    };
 
     // Load properties and current user from backend on mount
     useEffect(() => {
@@ -236,43 +410,67 @@ export const AppShell: React.FC<AppShellProps> = ({
                             : 'justify-between'
                             }`}
                     >
-                        <div className="flex items-center gap-2.5 overflow-hidden">
-
-                            <div
-                                onClick={() =>
-                                    isSidebarCollapsed &&
-                                    setIsSidebarCollapsed(false)
-                                }
-                                className="w-8 h-8 rounded-lg bg-[#091426] flex items-center justify-center text-white shadow-xs shrink-0 cursor-pointer"
-                                title="PG Manager"
-                            >
-                                <Building2 className="w-4 h-4 text-blue-400" />
+                        {isSidebarCollapsed ? (
+                            <div className="flex flex-col items-center gap-2 py-0.5">
+                                <div
+                                    onClick={() => setIsSidebarCollapsed(false)}
+                                    className="w-8 h-8 rounded-lg bg-[#091426] flex items-center justify-center text-white shadow-xs shrink-0 cursor-pointer hover:ring-2 hover:ring-blue-500/30 transition-all group"
+                                    title="Expand sidebar (Ctrl+B)"
+                                >
+                                    <Building2 className="w-4 h-4 text-blue-400 group-hover:scale-105 transition-transform" />
+                                </div>
+                                <button
+                                    onClick={() => setIsSidebarCollapsed(false)}
+                                    className="hidden md:flex items-center justify-center w-7 h-7 text-slate-400 hover:text-blue-600 hover:bg-blue-50/80 rounded-lg transition-all"
+                                    title="Expand sidebar (Ctrl+B)"
+                                    aria-label="Expand sidebar"
+                                >
+                                    <PanelLeftOpen className="w-4 h-4" />
+                                </button>
                             </div>
+                        ) : (
+                            <>
+                                <div className="flex items-center gap-2.5 overflow-hidden">
+                                    <div
+                                        className="w-8 h-8 rounded-lg bg-[#091426] flex items-center justify-center text-white shadow-xs shrink-0"
+                                        title="PG Manager"
+                                    >
+                                        <Building2 className="w-4 h-4 text-blue-400" />
+                                    </div>
 
-                            <div
-                                className={`flex flex-col ${isSidebarCollapsed
-                                    ? 'md:hidden'
-                                    : 'flex'
-                                    }`}
-                            >
-                                <span className="font-bold text-base text-[#091426] leading-none font-display">
-                                    PG Manager
-                                </span>
+                                    <div className="flex flex-col">
+                                        <span className="font-bold text-base text-[#091426] leading-none font-display">
+                                            PG Manager
+                                        </span>
 
-                                <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mt-0.5">
-                                    Property Operations
-                                </span>
-                            </div>
-                        </div>
+                                        <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mt-0.5">
+                                            Property Operations
+                                        </span>
+                                    </div>
+                                </div>
 
-                        {/* Mobile Close Button */}
-                        <button
-                            onClick={() => setIsMobileSidebarOpen(false)}
-                            className="flex md:hidden p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                            title="Close sidebar"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
+                                <div className="flex items-center gap-1">
+                                    {/* Desktop Modern In-Sidebar Collapse Button */}
+                                    <button
+                                        onClick={() => setIsSidebarCollapsed(true)}
+                                        className="hidden md:flex items-center justify-center w-7 h-7 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all border border-transparent hover:border-slate-200/60"
+                                        title="Minimize sidebar (Ctrl+B)"
+                                        aria-label="Minimize sidebar"
+                                    >
+                                        <PanelLeftClose className="w-4 h-4" />
+                                    </button>
+
+                                    {/* Mobile Close Button */}
+                                    <button
+                                        onClick={() => setIsMobileSidebarOpen(false)}
+                                        className="flex md:hidden p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                                        title="Close sidebar"
+                                    >
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Property Selector */}
@@ -326,10 +524,9 @@ export const AppShell: React.FC<AppShellProps> = ({
                                                 setIsMobileSidebarOpen(false);
                                                 onSelectProperty?.(p);
                                             }}
-                                            className={`w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 flex items-center justify-between ${
-                                                selectedProperty === p.name || selectedPropertyId === p.id
-                                                    ? 'text-blue-600 font-semibold bg-blue-50/50'
-                                                    : 'text-slate-700'
+                                            className={`w-full text-left px-3 py-1.5 text-xs font-medium hover:bg-slate-50 flex items-center justify-between ${selectedProperty === p.name || selectedPropertyId === p.id
+                                                ? 'text-blue-600 font-semibold bg-blue-50/50'
+                                                : 'text-slate-700'
                                                 }`}
                                         >
                                             <span className="truncate">
@@ -647,8 +844,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                             <div
                                 className="w-8 h-8 rounded-full bg-[#091426] text-white flex items-center justify-center font-bold text-xs shrink-0 select-none"
                             >
-                                {currentUser
-                                    ? currentUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                {activeUser
+                                    ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
                                     : 'RS'}
                             </div>
 
@@ -659,12 +856,12 @@ export const AppShell: React.FC<AppShellProps> = ({
                                     }`}
                             >
                                 <span className="text-xs font-semibold text-slate-900 truncate">
-                                    {currentUser?.fullName ?? 'Rajesh Sharma'}
+                                    {activeUser?.fullName ?? 'Rajesh Sharma'}
                                 </span>
 
                                 <span className="text-[11px] text-slate-500 truncate">
-                                    {currentUser
-                                        ? currentUser.role.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                                    {activeUser
+                                        ? activeUser.role.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
                                         : 'Property Operations'}
                                 </span>
                             </div>
@@ -690,7 +887,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                         }`}
                 >
 
-                    {/* Left: Mobile Trigger & Sidebar Collapse / Expand Toggle */}
+                    {/* Left: Mobile Trigger */}
                     <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
 
                         {/* Mobile Hamburger Trigger */}
@@ -704,25 +901,6 @@ export const AppShell: React.FC<AppShellProps> = ({
                             aria-label="Open sidebar menu"
                         >
                             <Menu className="w-5 h-5" />
-                        </button>
-
-                        {/* Desktop Collapse / Expand Toggle */}
-                        <button
-                            onClick={() =>
-                                setIsSidebarCollapsed(prev => !prev)
-                            }
-                            className="hidden md:flex p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-                            title={
-                                isSidebarCollapsed
-                                    ? 'Expand sidebar (Ctrl+B)'
-                                    : 'Minimize sidebar (Ctrl+B)'
-                            }
-                        >
-                            {isSidebarCollapsed ? (
-                                <PanelLeftOpen className="w-4 h-4 text-blue-600" />
-                            ) : (
-                                <PanelLeftClose className="w-4 h-4" />
-                            )}
                         </button>
                     </div>
 
@@ -738,77 +916,225 @@ export const AppShell: React.FC<AppShellProps> = ({
                                         prev => !prev
                                     )
                                 }
+                                aria-label="Notifications"
                                 className="relative p-1.5 sm:p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
                             >
                                 <Bell className="w-4 h-4" />
 
-                                <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center leading-none">
-                                    3
-                                </span>
+                                {unreadCount > 0 && (
+                                    <span className="absolute top-1 right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center leading-none animate-pulse shadow-2xs">
+                                        {unreadCount > 9 ? '9+' : unreadCount}
+                                    </span>
+                                )}
                             </button>
 
                             {showNotificationToast && (
-                                <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-xl shadow-xl border border-slate-200 p-3 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150 flex flex-col gap-2 max-h-[85vh]">
 
-                                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                                    {/* Header */}
+                                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-xs font-bold text-slate-900">
+                                                Real-Time Updates
+                                            </span>
+                                            {unreadCount > 0 && (
+                                                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-red-100 text-red-800">
+                                                    {unreadCount} new
+                                                </span>
+                                            )}
+                                        </div>
 
-                                        <span className="text-xs font-bold text-slate-900">
-                                            Notifications
-                                        </span>
-
-                                        <span className="text-[10px] text-blue-600 font-semibold cursor-pointer">
-                                            Mark all read
-                                        </span>
+                                        {unreadCount > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={handleMarkAllRead}
+                                                className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
+                                            >
+                                                Mark all read
+                                            </button>
+                                        )}
                                     </div>
 
-                                    <div className="divide-y divide-slate-100 py-1 text-xs">
+                                    {/* Notifications List */}
+                                    <div className="overflow-y-auto divide-y divide-slate-100 max-h-[60vh] -mx-1 px-1">
+                                        {notifications.length === 0 ? (
+                                            <div className="py-8 px-4 text-center flex flex-col items-center justify-center gap-1.5 text-slate-400">
+                                                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-1">
+                                                    <CheckCircle2 className="w-4 h-4" />
+                                                </div>
+                                                <span className="text-xs font-bold text-slate-700">All caught up!</span>
+                                                <span className="text-[11px] text-slate-400 max-w-[200px]">
+                                                    No pending vacate requests or verification tasks.
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            notifications.map(item => (
+                                                <div
+                                                    key={item.id}
+                                                    onClick={() => handleNotificationClick(item)}
+                                                    className={`py-2.5 px-2.5 rounded-xl transition-all cursor-pointer flex items-start gap-2.5 ${item.isRead
+                                                        ? 'hover:bg-slate-50 opacity-75'
+                                                        : 'bg-slate-50/70 hover:bg-slate-100/80'
+                                                        }`}
+                                                >
+                                                    <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center ${item.type === 'vacate_request'
+                                                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                                        : 'bg-rose-100 text-rose-800 border border-rose-200'
+                                                        }`}>
+                                                        {item.type === 'vacate_request' ? (
+                                                            <DoorOpen className="w-3.5 h-3.5" />
+                                                        ) : (
+                                                            <ShieldAlert className="w-3.5 h-3.5" />
+                                                        )}
+                                                    </div>
 
-                                        <div className="py-2">
-                                            <p className="font-medium text-slate-800">
-                                                Bed 204-C Hold Expiring in 9 mins
-                                            </p>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center justify-between gap-1">
+                                                            <span className="text-xs font-bold text-slate-900 truncate">
+                                                                {item.title}
+                                                            </span>
+                                                            <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${item.badgeColor} shrink-0`}>
+                                                                {item.badge}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[11px] font-semibold text-slate-700 mt-0.5 truncate">
+                                                            {item.subtitle}
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                                                            {item.detail}
+                                                        </p>
+                                                    </div>
 
-                                            <p className="text-[11px] text-slate-500">
-                                                Applicant: Vikram Malhotra
-                                            </p>
-                                        </div>
-
-                                        <div className="py-2">
-                                            <p className="font-medium text-slate-800">
-                                                New Rent Received â‚¹14,500
-                                            </p>
-
-                                            <p className="text-[11px] text-slate-500">
-                                                From Aarav Sharma (UPI)
-                                            </p>
-                                        </div>
-
-                                        <div className="py-2">
-                                            <p className="font-medium text-slate-800">
-                                                Maintenance Request Room 308
-                                            </p>
-
-                                            <p className="text-[11px] text-slate-500">
-                                                AC Servicing assigned to UrbanCool
-                                            </p>
-                                        </div>
-
+                                                    {!item.isRead && (
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mt-1.5 shrink-0" />
+                                                    )}
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
+
+                                    {/* Footer Info */}
+
                                 </div>
                             )}
                         </div>
 
-                        {/* User Avatar */}
-                        <div className="flex items-center gap-1.5 pl-0.5 cursor-pointer">
-
-                            <div className="relative">
-
-                                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#091426] text-white flex items-center justify-center text-xs font-bold shadow-xs">
-                                    RS
+                        {/* Interactive User Profile Menu */}
+                        <div className="relative" ref={profileMenuRef}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsProfileMenuOpen(prev => !prev);
+                                    setShowNotificationToast(false);
+                                }}
+                                aria-expanded={isProfileMenuOpen}
+                                aria-haspopup="true"
+                                title={`User Profile: ${activeUser?.fullName ?? 'Rajesh Sharma'}`}
+                                className="flex items-center gap-2 p-1 sm:px-2 sm:py-1 rounded-xl hover:bg-slate-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            >
+                                <div className="relative">
+                                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#091426] text-white flex items-center justify-center text-xs font-bold shadow-xs select-none ring-2 ring-slate-200">
+                                        {activeUser
+                                            ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                            : 'RS'}
+                                    </div>
+                                    <span className="absolute bottom-0 right-0 w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
                                 </div>
+                                <div className="hidden lg:flex flex-col text-left">
+                                    <span className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[120px]">
+                                        {activeUser?.fullName ?? 'Rajesh Sharma'}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 capitalize truncate max-w-[120px]">
+                                        {activeUser ? activeUser.role.replace(/_/g, ' ').toLowerCase() : 'Property Manager'}
+                                    </span>
+                                </div>
+                                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 hidden lg:block transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-180 text-blue-600' : ''}`} />
+                            </button>
 
-                                <span className="absolute bottom-0 right-0 w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
-                            </div>
+                            {/* Dropdown Card */}
+                            {isProfileMenuOpen && (
+                                <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-150 flex flex-col gap-3">
+                                    {/* User Identity Header */}
+                                    <div className="flex items-start gap-3 pb-3 border-b border-slate-100">
+                                        <div className="w-11 h-11 rounded-xl bg-[#091426] text-white flex items-center justify-center text-sm font-bold shadow-xs shrink-0">
+                                            {activeUser
+                                                ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                                : 'RS'}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between gap-1">
+                                                <h4 className="text-xs font-bold text-slate-900 truncate">
+                                                    {activeUser?.fullName ?? 'Rajesh Sharma'}
+                                                </h4>
+                                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                                                    {activeUser ? activeUser.role.replace(/_/g, ' ') : 'PROPERTY MANAGER'}
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                                                @{activeUser?.username ?? 'rajesh.sharma'}
+                                            </p>
+                                            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-emerald-600 font-semibold">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                <span>Active • Authenticated</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Simple User Info Details */}
+                                    <div className="flex flex-col gap-1.5 py-0.5 text-xs text-slate-600">
+                                        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                            <span className="font-mono text-[11px] text-slate-700 truncate">
+                                                {activeUser?.email ?? 'rajesh@rms.in'}
+                                            </span>
+                                        </div>
+                                        {activeUser?.phone && (
+                                            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                                                <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                <span className="font-mono text-[11px] text-slate-700">
+                                                    {activeUser.phone}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {selectedProperty && (
+                                            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                                                <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                <span className="text-[11px] text-slate-700 truncate font-medium">
+                                                    Property: <strong className="text-slate-900">{selectedProperty}</strong>
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Navigation & Logout Actions */}
+                                    <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setIsProfileMenuOpen(false);
+                                                navigate('/settings');
+                                            }}
+                                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors text-left"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <SettingsIcon className="w-3.5 h-3.5 text-slate-500" />
+                                                <span>Settings &amp; System</span>
+                                            </div>
+                                            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                                        </button>
+
+                                        {/* Log Out Button */}
+                                        <button
+                                            type="button"
+                                            onClick={handleLogout}
+                                            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-rose-700 bg-rose-50/70 hover:bg-rose-100/90 border border-rose-200/60 transition-colors text-left cursor-pointer"
+                                        >
+                                            <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                                            <span>Log Out</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </header>

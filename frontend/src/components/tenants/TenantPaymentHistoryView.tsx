@@ -25,7 +25,7 @@ import {
     Banknote,
     Smartphone,
 } from 'lucide-react';
-import { Tenant, TenantPaymentRecord, PageId, Room } from '../../types';
+import { Tenant, TenantPaymentRecord, PageId, Room, Invoice } from '../../types';
 import { generateTenantPaymentHistory } from '../../data/tenantPayments';
 import { formatAadharDisplay } from '../../utils/formatters';
 
@@ -33,6 +33,7 @@ interface TenantPaymentHistoryViewProps {
     tenant: Tenant;
     allTenants: Tenant[];
     rooms?: Room[];
+    invoices?: Invoice[];
     onSelectTenant: (tenant: Tenant) => void;
     onBack: () => void;
 }
@@ -41,6 +42,7 @@ export const TenantPaymentHistoryView: React.FC<TenantPaymentHistoryViewProps> =
     tenant,
     allTenants,
     rooms = [],
+    invoices = [],
     onSelectTenant,
     onBack,
 }) => {
@@ -185,8 +187,8 @@ export const TenantPaymentHistoryView: React.FC<TenantPaymentHistoryViewProps> =
 
     // Generate full payment records for current tenant
     const paymentRecords = useMemo(() => {
-        return generateTenantPaymentHistory(tenant);
-    }, [tenant]);
+        return generateTenantPaymentHistory(tenant, invoices);
+    }, [tenant, invoices]);
 
     // Find advance deposit record specifically
     const advanceRecord = useMemo(() => {
