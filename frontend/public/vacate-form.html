@@ -320,6 +320,175 @@
             color: #94a3b8;
             margin-top: 16px;
         }
+
+        /* In-page Alert Banner */
+        .form-alert-banner {
+            display: none;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 12px;
+            margin-bottom: 16px;
+            line-height: 1.5;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .form-alert-banner.active {
+            display: flex;
+        }
+
+        /* Duplicate Warning Modal (HTTP 400) */
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: modalFadeIn 0.2s ease-out;
+        }
+
+        .modal-backdrop.active {
+            display: flex;
+        }
+
+        .modal-card {
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.28);
+            max-width: 480px;
+            width: 100%;
+            padding: 28px;
+            position: relative;
+            text-align: center;
+            border: 1px solid rgba(226, 232, 240, 0.9);
+            animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes modalSlideUp {
+            from { opacity: 0; transform: translateY(18px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .modal-icon-wrap {
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            background: #fff1f2;
+            color: #e11d48;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            margin-bottom: 14px;
+            border: 2px solid #ffe4e6;
+        }
+
+        .modal-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 6px;
+            letter-spacing: -0.4px;
+        }
+
+        .modal-desc {
+            font-size: 13px;
+            color: #64748b;
+            line-height: 1.5;
+            margin-bottom: 16px;
+        }
+
+        .modal-alert-box {
+            background: #fff7ed;
+            border: 1px solid #ffedd5;
+            border-radius: 12px;
+            padding: 14px 16px;
+            text-align: left;
+            margin-bottom: 16px;
+            font-size: 12px;
+            color: #9a3412;
+            line-height: 1.5;
+        }
+
+        .modal-alert-box .meta-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .modal-alert-box .meta-label {
+            color: #7c2d12;
+            font-weight: 600;
+        }
+
+        .modal-alert-box .meta-val {
+            font-family: monospace;
+            font-weight: 700;
+            color: #431407;
+        }
+
+        .modal-info-tip {
+            font-size: 12px;
+            color: #475569;
+            margin-bottom: 20px;
+            line-height: 1.5;
+            text-align: left;
+            background: #f8fafc;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .btn-modal-primary {
+            width: 100%;
+            height: 44px;
+            border-radius: 10px;
+            border: none;
+            background: #091426;
+            color: #ffffff;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-modal-primary:hover {
+            background: #1e293b;
+        }
     </style>
 </head>
 <body>
@@ -420,6 +589,15 @@
                     <textarea id="reason" name="reason" placeholder="e.g. Job transfer, completed college term, relocated home..."></textarea>
                 </div>
 
+                <!-- In-page Alert Banner for validation or duplicate warnings -->
+                <div class="form-alert-banner" id="formAlertBanner">
+                    <span style="font-size: 16px; flex-shrink: 0;">⚠️</span>
+                    <div>
+                        <strong style="display: block; margin-bottom: 2px;">Notice Issue</strong>
+                        <span id="formAlertText"></span>
+                    </div>
+                </div>
+
                 <!-- Submit Button -->
                 <button type="submit" class="btn-submit" id="submitBtn">
                     <span>Submit Vacate Notice</span>
@@ -458,6 +636,44 @@
             <p style="font-size: 11px; color: #94a3b8;">
                 Management will conduct room handover inspection on your scheduled date. A copy of this confirmation has been sent to your registered WhatsApp.
             </p>
+        </div>
+
+        <!-- Duplicate Request Pop-up Modal (HTTP 400) -->
+        <div class="modal-backdrop" id="duplicateModal" role="dialog" aria-modal="true" aria-labelledby="duplicateModalTitle">
+            <div class="modal-card">
+                <div class="modal-icon-wrap">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                </div>
+                <div class="modal-badge">Duplicate Submission Restricted (HTTP 400)</div>
+                <h3 class="modal-title" id="duplicateModalTitle">Notice Already Registered</h3>
+                <p class="modal-desc">
+                    An active vacate request for this tenant is already on file with Property Management. Duplicate submissions for the same resident cannot be accepted.
+                </p>
+
+                <div class="modal-alert-box">
+                    <div class="meta-row">
+                        <span class="meta-label">Resident:</span>
+                        <span class="meta-val" id="modalResidentText">—</span>
+                    </div>
+                    <div style="border-top: 1px dashed #fed7aa; margin: 8px 0; padding-top: 8px; font-weight: 600;" id="modalErrorMessage">
+                        A vacate request for this tenant is already pending review. Duplicate submissions are not allowed.
+                    </div>
+                </div>
+
+                <div class="modal-info-tip">
+                    💡 <strong>What you should do:</strong> If you need to update your move-out date, cancel your notice, or inquire about your security advance refund, please contact Property Management directly instead of submitting a new form.
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-modal-primary" id="modalCloseBtn">
+                        Understood & Close
+                    </button>
+                </div>
+            </div>
         </div>
 
         <div class="footer">
@@ -546,13 +762,64 @@
         // Initial calculation
         recalculate();
 
+        function resetSubmitBtn() {
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `
+                <span>Submit Vacate Notice</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            `;
+        }
+
+        function showDuplicateModal(errorMsg, payload) {
+            const modal = document.getElementById('duplicateModal');
+            const residentText = document.getElementById('modalResidentText');
+            const errorMsgEl = document.getElementById('modalErrorMessage');
+            const alertBanner = document.getElementById('formAlertBanner');
+            const alertBannerText = document.getElementById('formAlertText');
+
+            const residentDisplay = (payload.tenantName || 'Resident') + 
+                (payload.roomNo ? ` (Room ${payload.roomNo})` : '') +
+                (payload.tenantUid ? ` • ID: ${payload.tenantUid}` : '');
+
+            residentText.textContent = residentDisplay;
+            errorMsgEl.textContent = errorMsg;
+
+            // In-page banner reminder
+            alertBannerText.textContent = errorMsg;
+            alertBanner.classList.add('active');
+
+            // Open popup modal
+            modal.classList.add('active');
+        }
+
+        function closeDuplicateModal() {
+            document.getElementById('duplicateModal').classList.remove('active');
+        }
+
+        document.getElementById('modalCloseBtn').addEventListener('click', closeDuplicateModal);
+        document.getElementById('duplicateModal').addEventListener('click', (e) => {
+            if (e.target.id === 'duplicateModal') {
+                closeDuplicateModal();
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeDuplicateModal();
+            }
+        });
+
         // Form submission
         document.getElementById('vacateForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
+            // Clear existing in-page alerts
+            const alertBanner = document.getElementById('formAlertBanner');
+            alertBanner.classList.remove('active');
+
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.disabled = true;
-            submitBtn.innerHTML = 'Submitting notice...';
+            submitBtn.innerHTML = 'Checking notice records...';
 
             const payload = {
                 tenantUid: tidInput.value.trim(),
@@ -567,15 +834,32 @@
             };
 
             try {
-                // Submit to backend webhook / API
-                const res = await fetch('/api/vacate-requests', {
+                // Submit to backend API endpoint (supporting both dev server proxy and direct host)
+                const isLocalPort = window.location.port === '3000' || window.location.port === '5173';
+                const endpoint = isLocalPort ? 'http://localhost:8080/api/vacate-requests' : '/api/vacate-requests';
+
+                const res = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
                 if (!res.ok) {
-                    throw new Error(`Server returned HTTP ${res.status}`);
+                    const rawBody = await res.text();
+                    let errMsg = rawBody;
+                    try {
+                        const parsed = JSON.parse(rawBody);
+                        errMsg = parsed.message || parsed.error || rawBody;
+                    } catch (err) {}
+
+                    // Restrict duplicate entry: pop up informing of duplicate re-request (HTTP 400 error)
+                    if (res.status === 400) {
+                        showDuplicateModal(errMsg, payload);
+                        resetSubmitBtn();
+                        return;
+                    }
+
+                    throw new Error(errMsg || `Server returned HTTP ${res.status}`);
                 }
 
                 const data = await res.json();
@@ -591,13 +875,10 @@
 
             } catch (err) {
                 console.error('Submission failed:', err);
-                alert('Submission successful! (Notice registered with property management)');
-                document.getElementById('formCard').style.display = 'none';
-                document.getElementById('successCard').style.display = 'block';
-                document.getElementById('successReqId').textContent = 'VR-' + Math.floor(1000 + Math.random() * 9000);
-                document.getElementById('successLeavingDate').textContent = leaveDateInput.value;
-                document.getElementById('successNoticeDays').textContent = noticeDaysText.textContent;
-                document.getElementById('successRepayable').textContent = repayTotalText.textContent;
+                resetSubmitBtn();
+                const alertBannerText = document.getElementById('formAlertText');
+                alertBannerText.textContent = err.message || 'Submission failed. Please verify your details and try again.';
+                alertBanner.classList.add('active');
             }
         });
     </script>

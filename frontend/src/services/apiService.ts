@@ -16,6 +16,8 @@ import {
     PropertyPerformanceReport,
     MonthlyIntakeReport,
     DemographicsReport,
+    Payment,
+    PaymentRequest,
 } from '../types';
 
 import {
@@ -735,25 +737,6 @@ class ApiService {
         await this.parseResponse<string>(response);
     }
 
-    public async allocateRoom(
-        roomNumber: string,
-        tenantName: string
-    ): Promise<Room> {
-        const currentRooms = await this.getRooms();
-        const room = currentRooms.find(item => item.roomNumber === roomNumber);
-
-        if (!room) {
-            throw new Error(`Room ${roomNumber} not found`);
-        }
-
-        return {
-            ...room,
-            occupied: room.occupied + 1,
-            residents: [...room.residents, tenantName],
-            status: room.occupied + 1 >= room.capacity ? 'full' : 'available',
-        };
-    }
-
     // =========================================================
     // FINANCE & BILLING (/api/invoices, /api/ledger)
     // =========================================================
@@ -779,6 +762,9 @@ class ApiService {
             paymentMode: item.paymentMode,
             runningBalance: item.runningBalance,
             propertyId: item.propertyId,
+            tenantUid: item.tenantUid,
+            invoiceId: item.invoiceId,
+            paymentId: item.paymentId,
         }));
     }
 
@@ -871,8 +857,10 @@ class ApiService {
         paymentMode: string,
         transactionRef?: string,
         paidOn?: string,
-        amount?: number
+        amount?: number,
+        idempotencyKey?: string
     ): Promise<Invoice> {
+        const effectiveKey = idempotencyKey || `PAY-${invoiceId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         const response = await fetch(this.getUrl(`/invoices/${encodeURIComponent(invoiceId)}/pay`), {
             method: 'POST',
             headers: this.getHeaders(),
@@ -881,6 +869,7 @@ class ApiService {
                 transactionRef: transactionRef || undefined,
                 paidOn: paidOn || undefined,
                 amount: amount && amount > 0 ? amount : undefined,
+                idempotencyKey: effectiveKey,
             }),
         });
         const item = await this.parseResponse<any>(response);
@@ -903,6 +892,72 @@ class ApiService {
             createdAt: item.createdAt,
             propertyId: item.propertyId,
         };
+    }
+
+    public async createAuthoritativePayment(paymentReq: PaymentRequest): Promise<Payment> {
+        const effectiveKey = paymentReq.idempotencyKey || `PAY-${paymentReq.invoiceId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        const response = await fetch(this.getUrl('/payments'), {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify({
+                ...paymentReq,
+                idempotencyKey: effectiveKey,
+            }),
+        });
+        return this.parseResponse<Payment>(response);
+    }
+
+    public async getPaymentsForInvoice(invoiceId: string | number): Promise<Payment[]> {
+        const response = await fetch(this.getUrl(`/payments/invoice/${encodeURIComponent(String(invoiceId))}`), {
+            headers: this.getHeaders(),
+        });
+        return this.parseResponse<Payment[]>(response);
+    }
+
+    public async getLedgerByTenant(tenantUid: string): Promise<Transaction[]> {
+        const response = await fetch(this.getUrl(`/ledger/tenant/${encodeURIComponent(tenantUid)}`), {
+            headers: this.getHeaders(),
+        });
+        const data = await this.parseResponse<any[]>(response);
+        return data.map((item: any): Transaction => ({
+            id: String(item.id),
+            date: item.date,
+            referenceNumber: item.referenceNumber,
+            type: (item.type || 'credit').toLowerCase() as any,
+            accountHead: item.accountHead,
+            description: item.description,
+            tenantOrVendor: item.tenantOrVendor,
+            amount: item.amount,
+            paymentMode: item.paymentMode,
+            runningBalance: item.runningBalance,
+            propertyId: item.propertyId,
+            tenantUid: item.tenantUid,
+            invoiceId: item.invoiceId,
+            paymentId: item.paymentId,
+        }));
+    }
+
+    public async getLedgerByInvoice(invoiceId: string | number): Promise<Transaction[]> {
+        const response = await fetch(this.getUrl(`/ledger/invoice/${encodeURIComponent(String(invoiceId))}`), {
+            headers: this.getHeaders(),
+        });
+        const data = await this.parseResponse<any[]>(response);
+        return data.map((item: any): Transaction => ({
+            id: String(item.id),
+            date: item.date,
+            referenceNumber: item.referenceNumber,
+            type: (item.type || 'credit').toLowerCase() as any,
+            accountHead: item.accountHead,
+            description: item.description,
+            tenantOrVendor: item.tenantOrVendor,
+            amount: item.amount,
+            paymentMode: item.paymentMode,
+            runningBalance: item.runningBalance,
+            propertyId: item.propertyId,
+            tenantUid: item.tenantUid,
+            invoiceId: item.invoiceId,
+            paymentId: item.paymentId,
+        }));
     }
 
     public async getLedgerBalance(propertyId?: number): Promise<number> {

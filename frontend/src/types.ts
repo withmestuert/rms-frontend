@@ -158,8 +158,11 @@ export interface Transaction {
     description: string;
     tenantOrVendor: string;
     amount: number;
-    paymentMode: 'UPI' | 'NEFT' | 'Credit Card' | 'Cash';
+    paymentMode: 'UPI' | 'NEFT' | 'Credit Card' | 'Cash' | string;
     runningBalance: number;
+    tenantUid?: string;
+    invoiceId?: number;
+    paymentId?: number;
 }
 
 export interface Invoice {
@@ -180,6 +183,37 @@ export interface Invoice {
     paymentMode?: string;
     transactionRef?: string;
     createdAt?: string;
+}
+
+export interface Payment {
+    id?: number;
+    paymentReference: string;
+    invoiceId: number;
+    invoiceNumber?: string;
+    tenantUid: string;
+    tenantName?: string;
+    amount: number;
+    paymentMode: string;
+    transactionReference?: string;
+    idempotencyKey: string;
+    status: string;
+    createdAt?: string;
+    propertyId?: number;
+    invoiceTotalAmount?: number;
+    invoicePaidAmount?: number;
+    invoiceRemainingBalance?: number;
+    invoiceStatus?: string;
+}
+
+export interface PaymentRequest {
+    invoiceId: number;
+    tenantUid?: string;
+    amount?: number;
+    paymentMode: string;
+    transactionReference?: string;
+    idempotencyKey: string;
+    paidOn?: string;
+    propertyId?: number;
 }
 
 export interface Property {

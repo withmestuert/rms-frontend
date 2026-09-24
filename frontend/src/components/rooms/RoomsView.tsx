@@ -22,11 +22,6 @@ import {
 interface RoomsViewProps {
     rooms: Room[];
 
-    onAllocateRoom: (
-        roomNumber: string,
-        tenantName: string
-    ) => void;
-
     onCreateRoom: (
         roomData: {
             roomNo: string;
@@ -58,7 +53,6 @@ interface RoomsViewProps {
 
 export const RoomsView: React.FC<RoomsViewProps> = ({
     rooms,
-    onAllocateRoom,
     onCreateRoom,
     onUpdateRoom,
     onDeleteRoom,
@@ -66,8 +60,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
 }) => {
     const [selectedFloor, setSelectedFloor] = useState<string | 'all'>('all');
     const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'vacate' | 'full'>('all');
-    const [allocatingRoom, setAllocatingRoom] = useState<Room | null>(null);
-    const [tenantNameInput, setTenantNameInput] = useState('');
+
 
     const [showCreateRoom, setShowCreateRoom] = useState(false);
     const [editingRoom, setEditingRoom] =
@@ -570,7 +563,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                                 </button>
                             ) : !isFull ? (
                                 <button
-                                    onClick={() => setAllocatingRoom(room)}
+                                    onClick={() => onNavigate('admissions')}
                                     className="w-full py-2 bg-[#091426] hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-xs"
                                 >
                                     <Plus className="w-3.5 h-3.5" />
@@ -586,73 +579,6 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                 })}
             </div>
 
-            {/* Quick Enrol Modal for Selected Room */}
-            {
-                allocatingRoom && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#091426]/50 backdrop-blur-xs">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5 border border-slate-200 flex flex-col gap-4">
-                            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                                <h3 className="text-sm font-bold text-slate-900 font-display">
-                                    Enrol into Room {allocatingRoom.roomNumber}
-                                </h3>
-                                <button
-                                    onClick={() => setAllocatingRoom(null)}
-                                    className="text-slate-400 hover:text-slate-700 text-sm font-bold"
-                                >
-                                    ✕
-                                </button>
-                            </div>
-
-                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 flex items-center justify-between text-xs">
-                                <div>
-                                    <span className="text-slate-400 block text-[10px] uppercase">Room Rent</span>
-                                    <span className="font-mono font-bold text-slate-900">₹{allocatingRoom.rent.toLocaleString('en-IN')}/mo</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-slate-400 block text-[10px] uppercase">Current Occupancy</span>
-                                    <span className="font-mono font-bold text-slate-900">{allocatingRoom.occupied} / {allocatingRoom.capacity}</span>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-col gap-1.5 text-xs">
-                                <label className="font-semibold text-slate-700">Resident Name</label>
-                                <input
-                                    type="text"
-                                    value={tenantNameInput}
-                                    onChange={e => setTenantNameInput(e.target.value)}
-                                    placeholder="e.g. Rahul Verma"
-                                    className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none"
-                                />
-                            </div>
-
-                            <div className="p-2.5 bg-emerald-50 rounded text-emerald-800 text-[11px] flex items-center gap-1.5">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                <span>Payment will be automatically checked and verified.</span>
-                            </div>
-
-                            <div className="flex items-center justify-end gap-2 pt-2">
-                                <button
-                                    onClick={() => setAllocatingRoom(null)}
-                                    className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        if (!tenantNameInput.trim()) return;
-                                        onAllocateRoom(allocatingRoom.roomNumber, tenantNameInput.trim());
-                                        setAllocatingRoom(null);
-                                        setTenantNameInput('');
-                                    }}
-                                    className="px-4 py-1.5 bg-[#091426] text-white rounded-lg text-xs font-bold"
-                                >
-                                    Confirm Enrolment
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
             {
                 showCreateRoom && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#091426]/50 backdrop-blur-xs">

@@ -299,42 +299,6 @@ export function App() {
         }
     };
 
-    const handleAllocateRoom = async (roomNumber: string, tenantName: string) => {
-        const updatedRoom = await apiService.allocateRoom(roomNumber, tenantName);
-        setRooms(prev => prev.map(r => (r.roomNumber === roomNumber ? updatedRoom : r)));
-
-        // Create corresponding admission and tenant
-        const newAdmission: Omit<Admission, 'id' | 'allocatedAt'> = {
-            residentName: tenantName,
-            phone: '+91 98000 00000',
-            email: `${tenantName.toLowerCase().replace(/\s+/g, '')}@example.com`,
-            roomNumber,
-            monthlyRent: updatedRoom.rent,
-            moveInDate: new Date().toISOString().split('T')[0],
-            hometown: 'Bangalore',
-            profession: 'Software Engineer',
-            category: 'working',
-            status: 'confirmed',
-        };
-        const createdAdm = await apiService.createAdmission(newAdmission);
-        setAdmissions(prev => [createdAdm, ...prev]);
-
-        const createdTenant = await apiService.addTenant({
-            name: tenantName,
-            phone: '+91 98000 00000',
-            email: `${tenantName.toLowerCase().replace(/\s+/g, '')}@example.com`,
-            roomNumber,
-            monthlyRent: updatedRoom.rent,
-            joinedDate: new Date().toISOString().split('T')[0],
-            hometown: 'Bangalore',
-            profession: 'Software Engineer',
-            category: 'working',
-            paymentStatus: 'verified',
-            status: 'confirmed',
-        });
-        setTenants(prev => [createdTenant, ...prev]);
-    };
-
     const handleRecordPayment = async (
         invoiceId: string,
         paymentMode: string,
@@ -496,7 +460,6 @@ export function App() {
                     element={
                         <RoomsView
                             rooms={rooms}
-                            onAllocateRoom={handleAllocateRoom}
                             onCreateRoom={handleCreateRoom}
                             onUpdateRoom={handleUpdateRoom}
                             onDeleteRoom={handleDeleteRoom}
