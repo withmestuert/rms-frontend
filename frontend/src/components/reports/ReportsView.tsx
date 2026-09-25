@@ -134,13 +134,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
     // 4. Resident Demographics by Profession
     const professionStats = useMemo(() => {
-        if (demographics?.professionStats && demographics.professionStats.length > 0) {
-            return demographics.professionStats;
+        const backendProfessions = (demographics as any)?.professions || (demographics as any)?.professionStats;
+        if (backendProfessions && backendProfessions.length > 0) {
+            return backendProfessions;
         }
         const counts: Record<string, number> = {};
         if (tenants.length > 0) {
             tenants.forEach(t => {
-                const prof = t.profession || 'Working Professional';
+                const prof = t.profession || 'Other';
                 counts[prof] = (counts[prof] || 0) + 1;
             });
             const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -168,8 +169,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     ];
 
     const hometownStats = useMemo(() => {
-        if (demographics?.hometownStats && demographics.hometownStats.length > 0) {
-            return demographics.hometownStats.map((item, index) => ({
+        const backendHometowns = (demographics as any)?.hometowns || (demographics as any)?.hometownStats;
+        if (backendHometowns && backendHometowns.length > 0) {
+            return backendHometowns.map((item: any, index: number) => ({
                 ...item,
                 color: item.color || colors[index % colors.length],
             }));
@@ -177,7 +179,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         const counts: Record<string, number> = {};
         if (tenants.length > 0) {
             tenants.forEach(t => {
-                const ht = t.hometown || 'Bangalore';
+                const ht = t.hometown || 'Unspecified';
                 counts[ht] = (counts[ht] || 0) + 1;
             });
             const total = Object.values(counts).reduce((a, b) => a + b, 0);

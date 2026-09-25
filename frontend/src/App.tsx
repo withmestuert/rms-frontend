@@ -335,6 +335,12 @@ export function App() {
         return result;
     };
 
+    const handleRecordTransaction = async (dto: any) => {
+        await apiService.recordTransaction(dto);
+        const updatedTx = await apiService.getTransactions(undefined, selectedPropertyId ?? undefined);
+        setTransactions(updatedTx);
+    };
+
     const handleResetData = async () => {
         try {
             await apiService.cleanDatabase();
@@ -367,6 +373,8 @@ export function App() {
             selectedPropertyId={selectedPropertyId}
             onSelectProperty={handleSelectProperty}
             currentUser={activeUser}
+            tenants={tenants}
+            rooms={rooms}
         >
             {backendError && (
                 <div className="mb-4 bg-amber-50 border border-amber-200/90 rounded-xl p-3.5 text-xs text-amber-900 flex items-center justify-between shadow-xs animate-in fade-in duration-150">
@@ -486,6 +494,7 @@ export function App() {
                     element={
                         <LedgerView
                             transactions={transactions}
+                            onRecordTransaction={handleRecordTransaction}
                         />
                     }
                 />

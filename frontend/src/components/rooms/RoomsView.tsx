@@ -413,7 +413,14 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
 
             {/* Clean Room Cards Grid with Terminal Hover Transformation */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredRooms.map(room => {
+                {filteredRooms.length === 0 ? (
+                    <div className="col-span-full bg-white rounded-xl border border-slate-200/80 p-12 text-center text-slate-400">
+                        <DoorOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                        <p className="text-sm font-semibold text-slate-700">No rooms found</p>
+                        <p className="text-xs text-slate-500 mt-1">Create a room using the "New Room" button above.</p>
+                    </div>
+                ) : (
+                    filteredRooms.map(room => {
                     const isFull = room.occupied >= room.capacity;
                     const hasNotice = room.status === 'vacate_notice';
                     const vacancyCount = Math.max(0, room.capacity - room.occupied);
@@ -576,7 +583,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                             )}
                         </div>
                     );
-                })}
+                }))}
             </div>
 
             {

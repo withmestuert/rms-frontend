@@ -20,12 +20,6 @@ import {
     PaymentRequest,
 } from '../types';
 
-import {
-    INITIAL_CRITICAL_ACTIONS,
-    INITIAL_TRANSACTIONS,
-    INITIAL_INVOICES,
-} from '../data/mockData';
-
 export interface ApiConfig {
     baseUrl: string;
     useLiveBackend: boolean;
@@ -35,9 +29,6 @@ export interface ApiConfig {
 const STORAGE_KEYS = {
     CONFIG: 'rms_api_config',
     ACTIVE_PROPERTY: 'rms_active_property_id',
-    ACTIONS: 'rms_actions_v2',
-    TRANSACTIONS: 'rms_transactions_v2',
-    INVOICES: 'rms_invoices_v3',
 };
 
 function normalizeBaseUrl(url?: string): string {
@@ -298,19 +289,11 @@ class ApiService {
     // =========================================================
 
     public async getCriticalActions(): Promise<CriticalAction[]> {
-        return this.getStorage(
-            STORAGE_KEYS.ACTIONS,
-            []
-        );
+        return [];
     }
 
-    public async dismissCriticalAction(id: string): Promise<void> {
-        const actions = await this.getCriticalActions();
-
-        this.setStorage(
-            STORAGE_KEYS.ACTIONS,
-            actions.filter(action => action.id !== id)
-        );
+    public async dismissCriticalAction(_id: string): Promise<void> {
+        // No-op for real backend integration
     }
 
     // =========================================================
@@ -354,7 +337,7 @@ class ApiService {
     ): Promise<Tenant> {
         const requestBody = {
             name: tenant.name,
-            aadhaarNo: tenant.aadharNumber || '123456789012',
+            aadhaarNo: tenant.aadharNumber || '',
             mobileNumber: tenant.phone,
             tenantType:
                 tenant.category === 'working'
@@ -394,10 +377,10 @@ class ApiService {
                 tenantData.category === 'working'
                     ? 'WORKING'
                     : 'STUDENT',
-            organizationName: tenantData.profession || 'Working',
+            organizationName: tenantData.profession || '',
             parentContact: tenantData.parentContact || tenantData.parentNumber || null,
             advancePaid: 0,
-            standardRent: tenantData.monthlyRent ?? 8000,
+            standardRent: tenantData.monthlyRent ?? 0,
             roomNo: tenantData.roomNumber,
             propertyId: tenantData.propertyId ?? this.activePropertyId ?? undefined,
         };
@@ -1039,25 +1022,6 @@ class ApiService {
     }
 
     /**
-     * Seeds mock data into localStorage on demand (only for testing).
-     * Does NOT initialize upfront automatically.
-     */
-    public async loadMockData(): Promise<void> {
-        this.setStorage(STORAGE_KEYS.ACTIONS, INITIAL_CRITICAL_ACTIONS);
-        this.setStorage(STORAGE_KEYS.TRANSACTIONS, INITIAL_TRANSACTIONS);
-        this.setStorage(STORAGE_KEYS.INVOICES, INITIAL_INVOICES);
-    }
-
-    /**
-     * Clears all mock/localStorage data.
-     */
-    public async clearMockData(): Promise<void> {
-        localStorage.removeItem(STORAGE_KEYS.ACTIONS);
-        localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
-        localStorage.removeItem(STORAGE_KEYS.INVOICES);
-    }
-
-    /**
      * Wipes all backend database mock/transactional records and clears local storage.
      */
     public async cleanDatabase(): Promise<{ status: string; message: string; timestamp: string }> {
@@ -1066,7 +1030,7 @@ class ApiService {
             headers: this.getHeaders(),
         });
         const result = await this.parseResponse<{ status: string; message: string; timestamp: string }>(response);
-        await this.clearMockData();
+        this.resetAllData();
         return result;
     }
 
@@ -1369,17 +1333,9 @@ class ApiService {
     // =========================================================
 
     public resetAllData(): void {
-        localStorage.removeItem(
-            STORAGE_KEYS.ACTIONS
-        );
-
-        localStorage.removeItem(
-            STORAGE_KEYS.TRANSACTIONS
-        );
-
-        localStorage.removeItem(
-            STORAGE_KEYS.INVOICES
-        );
+        localStorage.removeItem('rms_actions_v2');
+        localStorage.removeItem('rms_transactions_v2');
+        localStorage.removeItem('rms_invoices_v3');
     }
 }
 

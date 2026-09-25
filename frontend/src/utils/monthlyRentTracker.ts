@@ -287,22 +287,17 @@ export function getMonthlyRentSummary(
       }
     }
 
-    // 3. Current month default fallback: check tenant paymentStatus
-    const isPaid = tenant.paymentStatus === 'verified';
-    const parsedRoom = parseInt(tenant.roomNumber.replace(/\D/g, '') || '1', 10);
-    const mode = parsedRoom % 3 === 0 ? 'Cash' : 'UPI';
-    const monthAbbr = MONTH_NAMES[monthIndex - 1]?.slice(0, 3) || 'Jan';
-    const dynamicPaidDate = `05 ${monthAbbr} ${year}`;
-
+    // 3. Uninvoiced/Pending month: tenant has active room allocation but rent invoice is pending
     return {
       tenantId: tenant.id,
       tenantName: tenant.name,
       roomNumber: tenant.roomNumber,
       monthlyRent: tenant.monthlyRent,
-      status: isPaid ? 'paid' : 'pending',
-      paidOn: isPaid ? dynamicPaidDate : undefined,
-      paymentMode: isPaid ? mode : undefined,
-      receiptNumber: isPaid ? `REC-${year}-${String(monthIndex).padStart(2, '0')}-${tenant.roomNumber}` : undefined,
+      status: 'pending',
+      paidOn: undefined,
+      paymentMode: undefined,
+      receiptNumber: undefined,
+      invoiceId: undefined,
       joinedDate: tenant.joinedDate,
     };
   });

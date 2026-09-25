@@ -67,14 +67,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const [propName, setPropName] = useState('');
     const [propCode, setPropCode] = useState('');
     const [propAddress, setPropAddress] = useState('');
-    const [propCity, setPropCity] = useState('Bengaluru');
-    const [propState, setPropState] = useState('Karnataka');
-    const [propPincode, setPropPincode] = useState('560038');
+    const [propCity, setPropCity] = useState('');
+    const [propState, setPropState] = useState('');
+    const [propPincode, setPropPincode] = useState('');
     const [propType, setPropType] = useState('PG');
-    const [propFloors, setPropFloors] = useState(4);
-    const [propRooms, setPropRooms] = useState(30);
-    const [propPhone, setPropPhone] = useState('9876543210');
-    const [propEmail, setPropEmail] = useState('contact@pg.in');
+    const [propFloors, setPropFloors] = useState(1);
+    const [propRooms, setPropRooms] = useState(1);
+    const [propPhone, setPropPhone] = useState('');
+    const [propEmail, setPropEmail] = useState('');
     const [propStatus, setPropStatus] = useState('ACTIVE');
     const [isSubmittingProp, setIsSubmittingProp] = useState(false);
 
@@ -158,15 +158,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setEditingProperty(null);
         setPropName('');
         setPropCode('');
-        setPropAddress('12th Main, Indiranagar');
-        setPropCity('Bengaluru');
-        setPropState('Karnataka');
-        setPropPincode('560038');
+        setPropAddress('');
+        setPropCity('');
+        setPropState('');
+        setPropPincode('');
         setPropType('PG');
-        setPropFloors(4);
-        setPropRooms(32);
-        setPropPhone('9876543210');
-        setPropEmail('manager@rms.in');
+        setPropFloors(1);
+        setPropRooms(1);
+        setPropPhone('');
+        setPropEmail('');
         setPropStatus('ACTIVE');
         setIsPropertyModalOpen(true);
     };
@@ -176,12 +176,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setPropName(p.name);
         setPropCode(p.code);
         setPropAddress(p.address || '');
-        setPropCity(p.city || 'Bengaluru');
-        setPropState(p.state || 'Karnataka');
-        setPropPincode('560038');
+        setPropCity(p.city || '');
+        setPropState(p.state || '');
+        setPropPincode(p.pincode || '');
         setPropType(p.propertyType || 'PG');
-        setPropFloors(p.totalFloors || 3);
-        setPropRooms(p.totalRooms || 20);
+        setPropFloors(p.totalFloors || 1);
+        setPropRooms(p.totalRooms || 1);
         setPropPhone(p.contactNumber || '');
         setPropEmail(p.contactEmail || '');
         setPropStatus(p.status || 'ACTIVE');
@@ -473,7 +473,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                                 <div className="flex flex-col gap-1.5 text-xs text-slate-600 pt-2 border-t border-slate-100">
                                                     <div className="flex items-center gap-1.5">
                                                         <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                        <span className="truncate">{prop.address || 'Indiranagar'}, {prop.city || 'Bengaluru'}</span>
+                                                        <span className="truncate">{[prop.address, prop.city].filter(Boolean).join(', ') || '—'}</span>
                                                     </div>
                                                     {prop.contactNumber && (
                                                         <div className="flex items-center gap-1.5">
@@ -496,11 +496,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                                     </div>
                                                     <div>
                                                         <span className="block text-[10px] text-slate-400 uppercase font-semibold">Floors</span>
-                                                        <span className="font-bold text-slate-800">{prop.totalFloors || 3}</span>
+                                                        <span className="font-bold text-slate-800">{prop.totalFloors ?? '—'}</span>
                                                     </div>
                                                     <div>
                                                         <span className="block text-[10px] text-slate-400 uppercase font-semibold">Rooms</span>
-                                                        <span className="font-bold text-slate-800">{prop.totalRooms || 25}</span>
+                                                        <span className="font-bold text-slate-800">{prop.totalRooms ?? '—'}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -696,75 +696,87 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {users.map(u => (
-                            <div
-                                key={u.id}
-                                className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col justify-between gap-4 hover:border-slate-300 transition-colors"
-                            >
-                                <div className="flex flex-col gap-3">
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-[#091426] text-white flex items-center justify-center font-bold text-xs uppercase">
-                                                {u.fullName.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                    {users.length === 0 ? (
+                        <div className="bg-white p-12 text-center rounded-xl border border-dashed border-slate-300 flex flex-col items-center gap-3">
+                            <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center">
+                                <Users className="w-6 h-6" />
+                            </div>
+                            <span className="text-sm font-bold text-slate-700">No Staff or Administrative Users Found</span>
+                            <span className="text-xs text-slate-400 max-w-sm">
+                                Click &apos;Add New User&apos; above to create your first administrator, property manager, or staff member.
+                            </span>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {users.map(u => (
+                                <div
+                                    key={u.id}
+                                    className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col justify-between gap-4 hover:border-slate-300 transition-colors"
+                                >
+                                    <div className="flex flex-col gap-3">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-[#091426] text-white flex items-center justify-center font-bold text-xs uppercase">
+                                                    {u.fullName.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-sm font-bold text-slate-900">{u.fullName}</h3>
+                                                    <span className="text-xs font-mono text-slate-400">@{u.username}</span>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <h3 className="text-sm font-bold text-slate-900">{u.fullName}</h3>
-                                                <span className="text-xs font-mono text-slate-400">@{u.username}</span>
-                                            </div>
-                                        </div>
 
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${u.role === 'ADMIN'
-                                                ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                                : u.role === 'PROPERTY_MANAGER'
-                                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                            }`}>
-                                            {u.role.replace('_', ' ')}
-                                        </span>
-                                    </div>
-
-                                    <div className="flex flex-col gap-1.5 text-xs text-slate-600 pt-2 border-t border-slate-100">
-                                        <div className="flex items-center gap-1.5">
-                                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                            <span className="font-mono truncate">{u.email}</span>
-                                        </div>
-                                        {u.phone && (
-                                            <div className="flex items-center gap-1.5">
-                                                <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                                <span className="font-mono">{u.phone}</span>
-                                            </div>
-                                        )}
-                                        <div className="flex items-center gap-1.5">
-                                            <Shield className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                            <span className="text-[11px] font-medium text-slate-500">
-                                                Status: <strong className="text-emerald-700">{u.status}</strong>
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${u.role === 'ADMIN'
+                                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                                    : u.role === 'PROPERTY_MANAGER'
+                                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                }`}>
+                                                {u.role.replace('_', ' ')}
                                             </span>
                                         </div>
+
+                                        <div className="flex flex-col gap-1.5 text-xs text-slate-600 pt-2 border-t border-slate-100">
+                                            <div className="flex items-center gap-1.5">
+                                                <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                <span className="font-mono truncate">{u.email}</span>
+                                            </div>
+                                            {u.phone && (
+                                                <div className="flex items-center gap-1.5">
+                                                    <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                    <span className="font-mono">{u.phone}</span>
+                                                </div>
+                                            )}
+                                            <div className="flex items-center gap-1.5">
+                                                <Shield className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                                <span className="text-[11px] font-medium text-slate-500">
+                                                    Status: <strong className="text-emerald-700">{u.status}</strong>
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                                        <button
+                                            type="button"
+                                            onClick={() => openEditUserModal(u)}
+                                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                                        >
+                                            <Edit2 className="w-3 h-3" />
+                                            <span>Edit</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteUser(u.id, u.fullName)}
+                                            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                            <span>Delete</span>
+                                        </button>
                                     </div>
                                 </div>
-
-                                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                                    <button
-                                        type="button"
-                                        onClick={() => openEditUserModal(u)}
-                                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
-                                    >
-                                        <Edit2 className="w-3 h-3" />
-                                        <span>Edit</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleDeleteUser(u.id, u.fullName)}
-                                        className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
-                                    >
-                                        <Trash2 className="w-3 h-3" />
-                                        <span>Delete</span>
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -834,28 +846,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                                 <div className="flex flex-col gap-1.5">
                                     <label className="font-semibold text-slate-800">Client Runtime Mode</label>
-                                    <div className="flex items-center gap-4 pt-1">
-                                        <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
-                                            <input
-                                                type="radio"
-                                                checked={!config.useLiveBackend}
-                                                onChange={() => setConfig({ ...config, useLiveBackend: false })}
-                                                className="text-blue-600"
-                                            />
-                                            <span>Local Fallback Store</span>
-                                        </label>
+                                    <div className="flex items-center gap-2 pt-1 text-xs text-slate-700">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                        <span className="font-semibold text-emerald-800">Live Spring Boot HTTP REST Service (PostgreSQL Database)</span>
                                     </div>
-                                    <div className="flex items-center gap-4">
-                                        <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
-                                            <input
-                                                type="radio"
-                                                checked={config.useLiveBackend}
-                                                onChange={() => setConfig({ ...config, useLiveBackend: true })}
-                                                className="text-blue-600"
-                                            />
-                                            <span>Live Spring Boot HTTP REST Service</span>
-                                        </label>
-                                    </div>
+                                    <span className="text-[11px] text-slate-500">
+                                        All business records persist strictly in the relational PostgreSQL database via backend endpoints.
+                                    </span>
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">

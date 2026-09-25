@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
     Search,
     CheckCircle2,
@@ -40,13 +41,23 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
     onNavigate,
     onViewPaymentHistory,
 }) => {
-    const [searchQuery, setSearchQuery] = useState('');
+    const [searchParams] = useSearchParams();
+    const urlSearch = searchParams.get('search') || '';
+    const [searchQuery, setSearchQuery] = useState(urlSearch);
+
+    useEffect(() => {
+        const q = searchParams.get('search');
+        if (q !== null && q !== searchQuery) {
+            setSearchQuery(q);
+        }
+    }, [searchParams]);
+
     const [statusFilter, setStatusFilter] = useState('all');
-    const [selectedTenantId, setSelectedTenantId] = useState<string>(tenants[0]?.id || 'ten-1');
+    const [selectedTenantId, setSelectedTenantId] = useState<string>(tenants[0]?.id || '');
 
     // Advance verification modal state
     const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
-    const [verifyAmount, setVerifyAmount] = useState<number>(8000);
+    const [verifyAmount, setVerifyAmount] = useState<number>(0);
     const [verifyPaymentMode, setVerifyPaymentMode] = useState<string>('UPI');
     const [verifyReference, setVerifyReference] = useState<string>('');
     const [isVerifying, setIsVerifying] = useState<boolean>(false);
@@ -58,7 +69,7 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
     const [editRoom, setEditRoom] = useState('');
     const [editCategory, setEditCategory] = useState<'working' | 'student'>('working');
     const [editProfession, setEditProfession] = useState('');
-    const [editRent, setEditRent] = useState<number>(8000);
+    const [editRent, setEditRent] = useState<number>(0);
     const [editAadhar, setEditAadhar] = useState('');
     const [showAadharEdit, setShowAadharEdit] = useState(false);
     const [isUpdatingTenant, setIsUpdatingTenant] = useState(false);
@@ -280,16 +291,16 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                                                         </span>
                                                         <ArrowUpRight className="w-3.5 h-3.5 opacity-60 group-hover/name:opacity-100 text-blue-600 transition-opacity shrink-0" />
                                                     </button>
-                                                    <div className="text-[11px] text-slate-500">{t.profession || 'Professional'}</div>
+                                                    <div className="text-[11px] text-slate-500">{t.profession || '—'}</div>
                                                     <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1 mt-0.5">
                                                         <ShieldCheck className="w-3 h-3 text-blue-500" />
-                                                        <span>{formatAadharDisplay(t.aadharNumber) || '5489 2104 9382'}</span>
+                                                        <span>{formatAadharDisplay(t.aadharNumber) || '—'}</span>
                                                     </div>
                                                 </td>
                                                 <td className="py-3.5 px-4">
                                                     <span className="inline-flex items-center gap-1 font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
                                                         <MapPin className="w-3 h-3 text-slate-400" />
-                                                        {t.hometown || 'Bangalore'}
+                                                        {t.hometown || '—'}
                                                     </span>
                                                 </td>
                                                 <td className="py-3.5 px-4">
@@ -299,10 +310,17 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                                                     ₹{t.monthlyRent.toLocaleString('en-IN')}/mo
                                                 </td>
                                                 <td className="py-3.5 px-4">
-                                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                                                        Auto-Verified
-                                                    </span>
+                                                    {t.paymentStatus === 'verified' ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                                                            Advance Paid
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200/80">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                                                            Advance Pending
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="py-3.5 px-4 text-right">
                                                     <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
@@ -348,7 +366,7 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
 
                     <div className="p-3 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
                         <span>Showing {filteredTenants.length} residents</span>
-                        <span className="font-mono text-slate-400">Greenwood RMS</span>
+                        <span className="font-mono text-slate-400">RMS</span>
                     </div>
                 </div>
 
@@ -408,15 +426,15 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                             </span>
                             <div className="flex items-center gap-2 text-slate-700">
                                 <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                <span>Hometown: <strong>{selectedTenant.hometown || 'Bangalore'}</strong></span>
+                                <span>Hometown: <strong>{selectedTenant.hometown || '—'}</strong></span>
                             </div>
                             <div className="flex items-center gap-2 text-slate-700">
                                 <Briefcase className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                <span>Profession: <strong>{selectedTenant.profession || 'Working Professional'}</strong></span>
+                                <span>Profession: <strong>{selectedTenant.profession || '—'}</strong></span>
                             </div>
                             <div className="flex items-center gap-2 text-slate-700">
                                 <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                                <span>Aadhar: <strong className="font-mono">{formatAadharDisplay(selectedTenant.aadharNumber) || '5489 2104 9382'}</strong></span>
+                                <span>Aadhar: <strong className="font-mono">{formatAadharDisplay(selectedTenant.aadharNumber) || '—'}</strong></span>
                             </div>
                         </div>
 

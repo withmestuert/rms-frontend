@@ -46,7 +46,7 @@ The UI must deliver instant cognitive clarity, zero decorative fluff, authoritat
 
 ## Application Shell
 - Left Fixed Sidebar: 260px width
-  - Property brand header with switcher ("Greenwood PG - Phase 1")
+  - Property brand header with switcher (User-created Property)
   - Navigation groups:
     - Overview: Dashboard
     - Residents: Tenants, Admissions
@@ -55,9 +55,9 @@ The UI must deliver instant cognitive clarity, zero decorative fluff, authoritat
     - Communication: Notifications
     - Reports: Reports
     - System: Settings
-  - Footer: Manager profile (Rajesh Sharma) & "API Online • PostgreSQL Connected" indicator
+  - Footer: Manager profile (Active User) & "API Online • PostgreSQL Connected" indicator
 - Top Fixed Header: 56px height
-  - Breadcrumb trail (RMS > Operations > Greenwood PG)
+  - Breadcrumb trail (RMS > Operations > Active Property)
   - Universal Search bar (Ctrl + K)
   - Quick Admission button, Notification counter pill, User avatar menu
 - Main Workspace: 24px padding (space-2xl), 100% fluid grid width.
@@ -242,7 +242,7 @@ export const DesignSpecModal: React.FC<DesignSpecModalProps> = ({ isOpen, onClos
                 <div className="px-6 py-3 border-t border-slate-200 bg-white flex items-center justify-between text-xs text-slate-500">
                     <div className="flex items-center gap-2">
                         <Code className="w-4 h-4 text-blue-600" />
-                        <span>Tauri React frontend currently operating with mock REST client + live backend toggle.</span>
+                        <span>Tauri React frontend connected live to Spring Boot REST backend with PostgreSQL.</span>
                     </div>
                     <button
                         onClick={onClose}
