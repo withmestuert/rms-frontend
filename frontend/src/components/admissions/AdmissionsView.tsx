@@ -41,6 +41,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
     onCancelAdmission,
     onNavigate,
 }) => {
+
     // Available rooms and rooms with active vacate notices
     const availableRooms = rooms.filter(r => r.occupied < r.capacity);
     const vacateNoticeRooms = rooms.filter(r => r.status === 'vacate_notice');
