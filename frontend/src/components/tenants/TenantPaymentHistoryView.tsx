@@ -9,7 +9,6 @@ import {
     Building2,
     DoorOpen,
     Phone,
-    ShieldCheck,
     Printer,
     ChevronDown,
     X,
@@ -21,10 +20,14 @@ import {
     Smartphone,
     ExternalLink,
     Filter,
+    Copy,
+    Check,
+    Loader2,
+    Share2,
+    Calendar,
 } from 'lucide-react';
-import { Tenant, TenantPaymentRecord, Room, Invoice } from '../../types';
-import { generateTenantPaymentHistory } from '../../data/tenantPayments';
-import { isSameMonthYear } from '../../utils/monthlyRentTracker';
+import { Tenant, Room, Invoice, TenantMonthlyPayItem } from '../../types';
+import { apiService } from '../../services/apiService';
 
 interface TenantPaymentHistoryViewProps {
     tenant?: Tenant;
@@ -35,762 +38,565 @@ interface TenantPaymentHistoryViewProps {
     onBack: () => void;
 }
 
-// Helpers for robust floor and room normalization
-const normRoom = (r?: string): string => (r || '').trim().toUpperCase();
-
-export const formatFloorName = (fl: string): string => {
-    const trimmed = (fl || '').trim();
-    if (!trimmed) return 'Floor 1';
-    if (trimmed === '0' || trimmed.toLowerCase() === 'ground' || trimmed.toLowerCase() === 'g') {
-        return 'Ground Floor';
-    }
-    if (trimmed === '1' || trimmed.toLowerCase() === 'f') return '1st Floor';
-    if (trimmed === '2' || trimmed.toLowerCase() === 's') return '2nd Floor';
-    if (trimmed === '3' || trimmed.toLowerCase() === 't') return '3rd Floor';
-
-    const num = parseInt(trimmed, 10);
-    if (!isNaN(num)) {
-        if (num === 0) return 'Ground Floor';
-        if (num === 1) return '1st Floor';
-        if (num === 2) return '2nd Floor';
-        if (num === 3) return '3rd Floor';
-        return `${num}th Floor`;
-    }
-    return trimmed.toLowerCase().includes('floor') ? trimmed : `Floor ${trimmed}`;
-};
-
 export const TenantPaymentHistoryView: React.FC<TenantPaymentHistoryViewProps> = ({
     tenant: initialTenant,
     allTenants = [],
     rooms = [],
-    invoices = [],
     onSelectTenant,
     onBack,
 }) => {
-    // Filter & Search States
-    const [selectedFloor, setSelectedFloor] = useState<string>('all');
-    const [selectedRoom, setSelectedRoom] = useState<string>('all');
-    const [searchTerm, setSearchTerm] = useState<string>('');
-    const [rentStatusFilter, setRentStatusFilter] = useState<'all' | 'rent_paid' | 'rent_pending' | 'advance_pending'>('all');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedTenantUid, setSelectedTenantUid] = useState<string>(initialTenant?.id || 'all');
+    const [selectedMonth, setSelectedMonth] = useState<string>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'pending' | 'upi'>('all');
+    const [loading, setLoading] = useState(true);
+    const [ledgerItems, setLedgerItems] = useState<TenantMonthlyPayItem[]>([]);
+    const [copiedRef, setCopiedRef] = useState<string | null>(null);
+    const [copiedPayLink, setCopiedPayLink] = useState<string | null>(null);
+    const [selectedReceipt, setSelectedReceipt] = useState<TenantMonthlyPayItem | null>(null);
 
-    // Drawer / Modal states for detailed ledger of a specific tenant
-    const [selectedLedgerTenant, setSelectedLedgerTenant] = useState<Tenant | null>(null);
-    const [activeReceipt, setActiveReceipt] = useState<TenantPaymentRecord | null>(null);
-    const [ledgerFilterType, setLedgerFilterType] = useState<'all' | 'monthly_rent' | 'advance_deposit'>('all');
-
-    // Build a room-to-floor lookup map from rooms prop
-    const roomFloorMap = useMemo(() => {
-        const map = new Map<string, string>();
-        rooms.forEach(r => {
-            if (r.roomNumber) {
-                const fl = String(r.floor ?? '').trim();
-                if (fl) map.set(normRoom(r.roomNumber), fl);
-            }
-        });
-        return map;
-    }, [rooms]);
-
-    // Helper to get floor for any room or tenant
-    const getFloorForRoom = useMemo(() => {
-        return (roomNumber?: string): string => {
-            if (!roomNumber) return '1';
-            const normalized = normRoom(roomNumber);
-            if (roomFloorMap.has(normalized)) {
-                return roomFloorMap.get(normalized)!;
-            }
-            if (normalized.startsWith('G')) return '0';
-            if (normalized.startsWith('F')) return '1';
-            if (normalized.startsWith('S')) return '2';
-            if (normalized.startsWith('T')) return '3';
-            const num = parseInt(normalized, 10);
-            if (!isNaN(num)) {
-                if (num >= 1000) return String(Math.floor(num / 1000));
-                if (num >= 100) return String(Math.floor(num / 100));
-            }
-            return '1';
-        };
-    }, [roomFloorMap]);
-
-    // Active Tenants: only residents who have completed admission & verified advance payment
-    const activeTenants = useMemo(() => {
-        return allTenants.filter(t => {
-            const s = (t.status || '').toLowerCase();
-            return s !== 'vacated' && s !== 'inactive' && s !== 'cancelled' && s !== 'pending';
-        });
-    }, [allTenants]);
-
-    // 1. Available Floors: derived dynamically and sorted
-    const availableFloors = useMemo(() => {
-        const floorSet = new Set<string>();
-        rooms.forEach(r => {
-            const fl = String(r.floor ?? '').trim();
-            if (fl) floorSet.add(fl);
-        });
-        activeTenants.forEach(t => {
-            const fl = getFloorForRoom(t.roomNumber);
-            if (fl) floorSet.add(fl);
-        });
-
-        return Array.from(floorSet).sort((a, b) => {
-            const numA = parseInt(a, 10);
-            const numB = parseInt(b, 10);
-            if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-            return a.localeCompare(b);
-        });
-    }, [rooms, activeTenants, getFloorForRoom]);
-
-    // 2. Available Rooms: filtered strictly by chosen floor if selected
-    const availableRooms = useMemo(() => {
-        const roomMap = new Map<string, { roomNumber: string; floor: string }>();
-
-        rooms.forEach(r => {
-            if (r.roomNumber) {
-                const fl = String(r.floor ?? getFloorForRoom(r.roomNumber)).trim();
-                roomMap.set(normRoom(r.roomNumber), {
-                    roomNumber: r.roomNumber,
-                    floor: fl,
-                });
-            }
-        });
-
-        activeTenants.forEach(t => {
-            const key = normRoom(t.roomNumber);
-            if (key && !roomMap.has(key)) {
-                roomMap.set(key, {
-                    roomNumber: t.roomNumber,
-                    floor: getFloorForRoom(t.roomNumber),
-                });
-            }
-        });
-
-        let list = Array.from(roomMap.values());
-
-        if (selectedFloor !== 'all') {
-            list = list.filter(r => r.floor === selectedFloor);
-        }
-
-        return list.sort((a, b) =>
-            a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' })
-        );
-    }, [rooms, activeTenants, selectedFloor, getFloorForRoom]);
-
-    // Handle Floor Change with Cascading Room Reset
-    const handleFloorChange = (newFloor: string) => {
-        setSelectedFloor(newFloor);
-        if (newFloor !== 'all' && selectedRoom !== 'all') {
-            const currentRoomFloor = getFloorForRoom(selectedRoom);
-            if (currentRoomFloor !== newFloor) {
-                setSelectedRoom('all');
-            }
+    // Fetch monthly ledger from real backend endpoint
+    const fetchLedger = async () => {
+        setLoading(true);
+        try {
+            const data = await apiService.getTenantMonthlyLedger({
+                tenantUid: selectedTenantUid !== 'all' ? selectedTenantUid : undefined,
+                search: searchTerm.trim() || undefined,
+                monthYear: selectedMonth !== 'all' ? selectedMonth : undefined,
+            });
+            setLedgerItems(data);
+        } catch (err) {
+            console.error('Failed to fetch monthly ledger:', err);
+        } finally {
+            setLoading(false);
         }
     };
 
-    // Handle Room Change with Cascading Auto-Floor setting
-    const handleRoomChange = (newRoom: string) => {
-        setSelectedRoom(newRoom);
-        if (newRoom !== 'all') {
-            const roomFloor = getFloorForRoom(newRoom);
-            if (roomFloor && selectedFloor === 'all') {
-                setSelectedFloor(roomFloor);
-            }
-        }
-    };
+    useEffect(() => {
+        setSelectedTenantUid(initialTenant?.id || 'all');
+    }, [initialTenant]);
 
-    // Reset all filters
-    const handleResetFilters = () => {
-        setSelectedFloor('all');
-        setSelectedRoom('all');
-        setSearchTerm('');
-        setRentStatusFilter('all');
-    };
+    useEffect(() => {
+        fetchLedger();
+    }, [selectedTenantUid, selectedMonth]);
 
-    const hasActiveFilters =
-        selectedFloor !== 'all' ||
-        selectedRoom !== 'all' ||
-        searchTerm.trim() !== '' ||
-        rentStatusFilter !== 'all';
+    // Debounced search trigger
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            fetchLedger();
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
 
-    // Helper: Calculate billing status for any given tenant
-    const getTenantFinancials = (t: Tenant) => {
-        // Advance Paid
-        const isAdvancePaid = t.paymentStatus === 'verified' || (t.advancePaid !== undefined && t.advancePaid > 0);
-        const advanceAmount = (t.advancePaid && t.advancePaid > 0)
-            ? t.advancePaid
-            : (t.securityDeposit && t.securityDeposit > 0)
-                ? t.securityDeposit
-                : t.monthlyRent || 8000;
-
-        // Current Month Rent Status
-        const now = new Date();
-        const currMonthLong = now.toLocaleString('en-US', { month: 'long' });
-        const currYear = now.getFullYear();
-        const currentCalendarMonthKey = `${currMonthLong} ${currYear}`;
-
-        const tenantInvoices = invoices.filter(inv => {
-            const matchUid = Boolean(inv.tenantUid && inv.tenantUid === t.id);
-            const matchName = Boolean(inv.tenantName && t.name && inv.tenantName.trim().toLowerCase() === t.name.trim().toLowerCase());
-            return matchUid || matchName;
+    // Available unique months
+    const availableMonths = useMemo(() => {
+        const months = new Set<string>();
+        ledgerItems.forEach(item => {
+            if (item.monthYear) months.add(item.monthYear);
         });
+        return Array.from(months);
+    }, [ledgerItems]);
 
-        // Check if there is an invoice matching the current calendar month
-        let currInv = tenantInvoices.find(inv => isSameMonthYear(inv.monthYear, currentCalendarMonthKey));
+    // Filtered by status tab
+    const filteredItems = useMemo(() => {
+        return ledgerItems.filter(item => {
+            if (statusFilter === 'paid') return item.pendingAmount === 0 || item.status === 'PAID';
+            if (statusFilter === 'pending') return item.pendingAmount > 0 || item.status !== 'PAID';
+            if (statusFilter === 'upi') return (item.paymentMode || '').toUpperCase().includes('UPI');
+            return true;
+        });
+    }, [ledgerItems, statusFilter]);
 
-        // If no invoice for current month, check upcoming month (advance rent collection e.g. Oct for Sep)
-        if (!currInv) {
-            const nextMonthDate = new Date(currYear, now.getMonth() + 1, 1);
-            const nextMonthKey = `${nextMonthDate.toLocaleString('en-US', { month: 'long' })} ${nextMonthDate.getFullYear()}`;
-            currInv = tenantInvoices.find(inv => isSameMonthYear(inv.monthYear, nextMonthKey));
-        }
+    // Summary KPIs
+    const summary = useMemo(() => {
+        let totalBilled = 0;
+        let totalPaid = 0;
+        let totalPending = 0;
+        let upiCount = 0;
 
-        // If still no invoice, check the latest invoice for this resident
-        if (!currInv && tenantInvoices.length > 0) {
-            const sortedInvs = [...tenantInvoices].sort((a, b) => (b.id || 0) - (a.id || 0));
-            currInv = sortedInvs[0];
-        }
-
-        let rentStatus: 'paid' | 'pending' | 'partially_paid' = 'pending';
-        let rentAmount = t.monthlyRent || 8000;
-        let cycleName = currentCalendarMonthKey;
-        let paymentMode: string | undefined;
-        let paymentDate: string | undefined;
-
-        if (currInv) {
-            cycleName = currInv.monthYear || currentCalendarMonthKey;
-            rentAmount = currInv.amount || t.monthlyRent || 8000;
-            paymentMode = currInv.paymentMode || undefined;
-            paymentDate = currInv.paidOn || undefined;
-
-            if (currInv.status === 'paid' || (currInv.paidAmount && currInv.paidAmount >= currInv.amount)) {
-                rentStatus = 'paid';
-            } else if (currInv.status === 'partially_paid' || (currInv.paidAmount && currInv.paidAmount > 0)) {
-                rentStatus = 'partially_paid';
-            } else {
-                rentStatus = 'pending';
-            }
-        }
-
-        return {
-            isAdvancePaid,
-            advanceAmount,
-            advanceReceiptNo: `REC-ADV-${t.roomNumber}`,
-            rentStatus,
-            rentAmount,
-            cycleName,
-            paymentMode,
-            paymentDate,
-            floor: getFloorForRoom(t.roomNumber),
-        };
-    };
-
-    // Filtered Tenants List (Active Residents Only)
-    const filteredTenants = useMemo(() => {
-        return activeTenants
-            .filter(t => {
-                const fin = getTenantFinancials(t);
-
-                // Floor Filter
-                if (selectedFloor !== 'all') {
-                    if (fin.floor !== selectedFloor) return false;
-                }
-
-                // Room Filter
-                if (selectedRoom !== 'all') {
-                    if (normRoom(t.roomNumber) !== normRoom(selectedRoom)) return false;
-                }
-
-                // Search Filter (Name, Room, Phone)
-                if (searchTerm.trim()) {
-                    const q = searchTerm.toLowerCase().trim();
-                    const matchName = (t.name || '').toLowerCase().includes(q);
-                    const matchRoom = (t.roomNumber || '').toLowerCase().includes(q);
-                    const matchPhone = (t.phone || '').includes(q);
-                    if (!matchName && !matchRoom && !matchPhone) return false;
-                }
-
-                // Status Filter Tab
-                if (rentStatusFilter === 'rent_paid' && fin.rentStatus !== 'paid') return false;
-                if (rentStatusFilter === 'rent_pending' && fin.rentStatus === 'paid') return false;
-                if (rentStatusFilter === 'advance_pending' && fin.isAdvancePaid) return false;
-
-                return true;
-            })
-            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    }, [activeTenants, selectedFloor, selectedRoom, searchTerm, rentStatusFilter, invoices, getFloorForRoom]);
-
-    // Financial KPI Summary for active tenants
-    const summaryStats = useMemo(() => {
-        let totalResidents = activeTenants.length;
-        let advancePaidCount = 0;
-        let advancePendingCount = 0;
-        let rentPaidCount = 0;
-        let rentPendingCount = 0;
-
-        activeTenants.forEach(t => {
-            const fin = getTenantFinancials(t);
-            if (fin.isAdvancePaid) advancePaidCount++;
-            else advancePendingCount++;
-
-            if (fin.rentStatus === 'paid') rentPaidCount++;
-            else rentPendingCount++;
+        filteredItems.forEach(item => {
+            totalBilled += item.billedAmount || 0;
+            totalPaid += item.paidAmount || 0;
+            totalPending += item.pendingAmount || 0;
+            if ((item.paymentMode || '').toUpperCase().includes('UPI')) upiCount++;
         });
 
         return {
-            totalResidents,
-            advancePaidCount,
-            advancePendingCount,
-            rentPaidCount,
-            rentPendingCount,
+            totalRecords: filteredItems.length,
+            totalBilled,
+            totalPaid,
+            totalPending,
+            upiCount,
         };
-    }, [activeTenants, invoices]);
+    }, [filteredItems]);
 
-    // Ledger details for drawer/modal
-    const drawerPaymentRecords = useMemo(() => {
-        if (!selectedLedgerTenant) return [];
-        return generateTenantPaymentHistory(selectedLedgerTenant, invoices);
-    }, [selectedLedgerTenant, invoices]);
+    const handleCopy = (text: string) => {
+        navigator.clipboard.writeText(text);
+        setCopiedRef(text);
+        setTimeout(() => setCopiedRef(null), 2000);
+    };
 
-    const drawerAdvanceRecord = useMemo(() => {
-        return drawerPaymentRecords.find(p => p.category === 'advance_deposit');
-    }, [drawerPaymentRecords]);
+    const handleCopyPayLink = (invNum: string) => {
+        const link = `${window.location.origin}/pay/${invNum}`;
+        navigator.clipboard.writeText(link);
+        setCopiedPayLink(invNum);
+        setTimeout(() => setCopiedPayLink(null), 2000);
+    };
 
-    const filteredDrawerRecords = useMemo(() => {
-        if (ledgerFilterType === 'all') return drawerPaymentRecords;
-        return drawerPaymentRecords.filter(p => p.category === ledgerFilterType);
-    }, [drawerPaymentRecords, ledgerFilterType]);
+    const handleExportCsv = () => {
+        if (!filteredItems.length) return;
+        const headers = ['Tenant Name', 'Room No', 'Bed', 'Month', 'Paid On', 'Billed Amount (INR)', 'Paid Amount (INR)', 'Pending (INR)', 'Paid Through', 'UPI Details / Reference', 'Status'];
+        const rows = filteredItems.map(i => [
+            `"${(i.tenantName || '').replace(/"/g, '""')}"`,
+            `"${(i.roomNo || '').replace(/"/g, '""')}"`,
+            `"${(i.bedNumber || '-').replace(/"/g, '""')}"`,
+            `"${(i.monthYear || '').replace(/"/g, '""')}"`,
+            `"${(i.paidOn || '-').replace(/"/g, '""')}"`,
+            i.billedAmount || 0,
+            i.paidAmount || 0,
+            i.pendingAmount || 0,
+            `"${(i.paymentMode || '-').replace(/"/g, '""')}"`,
+            `"${(i.upiDetails || i.transactionRef || '-').replace(/"/g, '""')}"`,
+            `"${(i.status || 'PENDING').replace(/"/g, '""')}"`,
+        ]);
 
-    const drawerTotalRentPaid = useMemo(() => {
-        return drawerPaymentRecords
-            .filter(p => p.category === 'monthly_rent')
-            .reduce((sum, p) => sum + p.amount, 0);
-    }, [drawerPaymentRecords]);
-
-    const drawerAdvancePaidAmount = drawerAdvanceRecord
-        ? drawerAdvanceRecord.amount
-        : (selectedLedgerTenant ? selectedLedgerTenant.monthlyRent : 0);
+        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement('a');
+        link.setAttribute('href', encodedUri);
+        link.setAttribute('download', `tenant_monthly_pay_list_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    };
 
     return (
         <div className="flex flex-col w-full gap-5">
-            {/* Top Navigation & Action Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-xs">
+            {/* Top Navigation & Action Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
                 <div className="flex items-center gap-3">
                     <button
                         onClick={onBack}
                         className="h-9 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                         <ArrowLeft className="w-4 h-4" />
-                        <span>Back to Tenants</span>
+                        <span>Back</span>
                     </button>
                     <div className="h-4 w-px bg-slate-200 hidden sm:block" />
                     <div>
-                        <h1 className="text-xs sm:text-sm font-bold text-slate-900">
-                            Tenant Payment Ledger &amp; Security Deposit Desk
+                        <h1 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                            <Receipt className="w-5 h-5 text-indigo-600" />
+                            Tenant Monthly Pay List &amp; Statement
                         </h1>
-                        <p className="text-[11px] text-slate-500 hidden sm:block">
-                            Track advance security deposits and current month rent clearance across all tenants.
+                        <p className="text-xs text-slate-500 hidden sm:block">
+                            Lookup monthly rent clearance, pending amounts, and UPI transaction reference specifics for any resident.
                         </p>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                     <button
+                        onClick={handleExportCsv}
+                        disabled={filteredItems.length === 0}
+                        className="h-9 px-3.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                    >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Export CSV</span>
+                    </button>
+                    <button
                         onClick={() => window.print()}
-                        className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        className="h-9 px-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                     >
                         <Printer className="w-3.5 h-3.5" />
-                        <span>Print Overview</span>
+                        <span>Print Statement</span>
                     </button>
                 </div>
             </div>
 
-            {/* Quick KPI Financial Strip */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
-                    <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                            Total Residents
-                        </span>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold font-mono text-[#091426]">
-                                {summaryStats.totalResidents}
-                            </span>
-                            <span className="text-xs text-slate-500">Active Records</span>
-                        </div>
+            {/* KPI Metrics Summary Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                        Monthly Invoices
+                    </span>
+                    <div className="text-xl font-bold font-mono text-slate-900 mt-1">
+                        {summary.totalRecords}
                     </div>
-                    <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                        <User className="w-4 h-4" />
-                    </div>
+                    <span className="text-[11px] text-slate-500">Statements displayed</span>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
-                    <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                            Advance Deposits
-                        </span>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold font-mono text-emerald-600">
-                                {summaryStats.advancePaidCount} Paid
-                            </span>
-                            {summaryStats.advancePendingCount > 0 && (
-                                <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                                    {summaryStats.advancePendingCount} Pending
-                                </span>
-                            )}
-                        </div>
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                        Total Collected
+                    </span>
+                    <div className="text-xl font-bold font-mono text-emerald-600 mt-1">
+                        ₹{summary.totalPaid.toLocaleString('en-IN')}
                     </div>
-                    <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                        <ShieldCheck className="w-4 h-4" />
-                    </div>
+                    <span className="text-[11px] text-slate-500">Cleared rent payments</span>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
-                    <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                            Current Month Rent Status
-                        </span>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold font-mono text-emerald-600">
-                                {summaryStats.rentPaidCount} Paid
-                            </span>
-                            <span className="text-xs font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
-                                {summaryStats.rentPendingCount} Pending
-                            </span>
-                        </div>
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                        Total Pending
+                    </span>
+                    <div className={`text-xl font-bold font-mono mt-1 ${summary.totalPending > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                        ₹{summary.totalPending.toLocaleString('en-IN')}
                     </div>
-                    <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                        <Receipt className="w-4 h-4" />
+                    <span className="text-[11px] text-slate-500">Unsettled balance</span>
+                </div>
+
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                        UPI Transactions
+                    </span>
+                    <div className="text-xl font-bold font-mono text-indigo-600 mt-1">
+                        {summary.upiCount}
                     </div>
+                    <span className="text-[11px] text-slate-500">Paid via UPI / QR / Net</span>
                 </div>
             </div>
 
-            {/* DEDICATED SEARCH & FILTER PANEL (Corrected Floor & Room Dropdowns) */}
-            <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200/90 shadow-xs flex flex-col gap-3.5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
-                            <Search className="w-4 h-4" />
-                        </div>
-                        <div>
-                            <h2 className="text-xs font-bold text-[#091426] uppercase tracking-wider">
-                                Resident Search &amp; Room Navigator
-                            </h2>
-                            <p className="text-[11px] text-slate-500">
-                                Filter tenants by floor, narrow down to room, and search by resident name.
-                            </p>
-                        </div>
-                    </div>
-
-                    {hasActiveFilters && (
-                        <button
-                            onClick={handleResetFilters}
-                            className="self-start sm:self-auto h-7 px-2.5 text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                            <RotateCcw className="w-3 h-3" />
-                            <span>Reset Filters</span>
-                        </button>
-                    )}
-                </div>
-
-                {/* 3 Interconnected Dropdown / Input Controls */}
+            {/* SEARCH & FILTER CONTROLS */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3.5">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                    {/* 1. Floor Selector */}
-                    <div className="sm:col-span-3 flex flex-col gap-1">
+                    {/* 1. Universal Search Input */}
+                    <div className="sm:col-span-5 flex flex-col gap-1">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                            <Building2 className="w-3 h-3 text-slate-400" />
-                            <span>Floor</span>
+                            <Search className="w-3 h-3 text-slate-400" />
+                            <span>Search Tenant / Room</span>
                         </label>
                         <div className="relative">
-                            <select
-                                value={selectedFloor}
-                                onChange={e => handleFloorChange(e.target.value)}
-                                className="w-full h-9 pl-3 pr-8 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all cursor-pointer appearance-none"
-                            >
-                                <option value="all">All Floors</option>
-                                {availableFloors.map(fl => (
-                                    <option key={fl} value={fl}>
-                                        {formatFloorName(fl)}
-                                    </option>
-                                ))}
-                            </select>
-                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        </div>
-                    </div>
-
-                    {/* 2. Room Selector (Filtered strictly according to Selected Floor) */}
-                    <div className="sm:col-span-3 flex flex-col gap-1">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                            <DoorOpen className="w-3 h-3 text-slate-400" />
-                            <span>Room</span>
-                            {selectedFloor !== 'all' && (
-                                <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 px-1 rounded">
-                                    {formatFloorName(selectedFloor)}
-                                </span>
-                            )}
-                        </label>
-                        <div className="relative">
-                            <select
-                                value={selectedRoom}
-                                onChange={e => handleRoomChange(e.target.value)}
-                                className="w-full h-9 pl-3 pr-8 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all cursor-pointer appearance-none"
-                            >
-                                <option value="all">
-                                    {selectedFloor !== 'all'
-                                        ? `All Rooms on ${formatFloorName(selectedFloor)}`
-                                        : 'All Rooms'}
-                                </option>
-                                {availableRooms.map(rm => (
-                                    <option key={rm.roomNumber} value={rm.roomNumber}>
-                                        Room {rm.roomNumber} ({formatFloorName(rm.floor)})
-                                    </option>
-                                ))}
-                            </select>
-                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        </div>
-                    </div>
-
-                    {/* 3. Search Resident / Tenant */}
-                    <div className="sm:col-span-6 flex flex-col gap-1">
-                        <div className="flex items-center justify-between">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                                <User className="w-3 h-3 text-slate-400" />
-                                <span>Search Resident</span>
-                            </label>
-                            <span className="text-[10px] font-semibold text-slate-400">
-                                {filteredTenants.length} of {activeTenants.length} Residents
-                            </span>
-                        </div>
-
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                                <Search className="w-3.5 h-3.5" />
-                            </div>
                             <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
-                                placeholder="Search by name, room, or phone number..."
-                                className="w-full h-9 pl-9 pr-8 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                                placeholder="Search tenant name, room number, or mobile..."
+                                className="w-full h-9 pl-9 pr-8 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
                             />
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                             {searchTerm && (
                                 <button
                                     onClick={() => setSearchTerm('')}
-                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-700 cursor-pointer"
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
                                 >
                                     <X className="w-3.5 h-3.5" />
                                 </button>
                             )}
                         </div>
                     </div>
+
+                    {/* 2. Tenant Dropdown Selector */}
+                    <div className="sm:col-span-4 flex flex-col gap-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                            <User className="w-3 h-3 text-slate-400" />
+                            <span>Select Specific Tenant</span>
+                        </label>
+                        <div className="relative">
+                            <select
+                                value={selectedTenantUid}
+                                onChange={e => {
+                                    const val = e.target.value;
+                                    setSelectedTenantUid(val);
+                                    if (onSelectTenant) {
+                                        const found = allTenants.find(t => t.id === val);
+                                        onSelectTenant(found || (null as any));
+                                    }
+                                }}
+                                className="w-full h-9 pl-3 pr-8 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer appearance-none"
+                            >
+                                <option value="all">All Tenants ({allTenants.length})</option>
+                                {allTenants.map(t => (
+                                    <option key={t.id} value={t.id}>
+                                        {t.name} (Room {t.roomNumber})
+                                    </option>
+                                ))}
+                            </select>
+                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                    </div>
+
+                    {/* 3. Month Filter */}
+                    <div className="sm:col-span-3 flex flex-col gap-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            <span>Billing Month</span>
+                        </label>
+                        <div className="relative">
+                            <select
+                                value={selectedMonth}
+                                onChange={e => setSelectedMonth(e.target.value)}
+                                className="w-full h-9 pl-3 pr-8 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all cursor-pointer appearance-none"
+                            >
+                                <option value="all">All Months</option>
+                                {availableMonths.map(m => (
+                                    <option key={m} value={m}>
+                                        {m}
+                                    </option>
+                                ))}
+                            </select>
+                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                    </div>
                 </div>
 
-                {/* Quick Status Filter Tabs */}
-                <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 text-xs">
+                {/* Quick Status Pill Filters */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
                     <span className="text-[10px] uppercase font-bold text-slate-400 mr-1 flex items-center gap-1">
-                        <Filter className="w-3 h-3" /> Quick Filter:
+                        <Filter className="w-3 h-3" /> Filter By:
                     </span>
-                    <button
-                        onClick={() => setRentStatusFilter('all')}
-                        className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${rentStatusFilter === 'all'
-                            ? 'bg-[#091426] text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    {[
+                        { id: 'all', label: 'All Statements' },
+                        { id: 'paid', label: 'Paid / Cleared' },
+                        { id: 'pending', label: 'Pending / Due' },
+                        { id: 'upi', label: 'UPI Payments Only' },
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setStatusFilter(tab.id as any)}
+                            className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+                                statusFilter === tab.id
+                                    ? 'bg-slate-900 text-white shadow-2xs'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
-                    >
-                        All Residents ({activeTenants.length})
-                    </button>
-                    <button
-                        onClick={() => setRentStatusFilter('rent_paid')}
-                        className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${rentStatusFilter === 'rent_paid'
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                    >
-                        Rent Paid ({summaryStats.rentPaidCount})
-                    </button>
-                    <button
-                        onClick={() => setRentStatusFilter('rent_pending')}
-                        className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${rentStatusFilter === 'rent_pending'
-                            ? 'bg-rose-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                    >
-                        Rent Pending ({summaryStats.rentPendingCount})
-                    </button>
-                    <button
-                        onClick={() => setRentStatusFilter('advance_pending')}
-                        className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${rentStatusFilter === 'advance_pending'
-                            ? 'bg-amber-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                    >
-                        Advance Pending ({summaryStats.advancePendingCount})
-                    </button>
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+
+                    {(searchTerm || selectedTenantUid !== 'all' || selectedMonth !== 'all' || statusFilter !== 'all') && (
+                        <button
+                            onClick={() => {
+                                setSearchTerm('');
+                                setSelectedTenantUid('all');
+                                setSelectedMonth('all');
+                                setStatusFilter('all');
+                            }}
+                            className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
+                        >
+                            <RotateCcw className="w-3 h-3" />
+                            Reset Filters
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {/* MAIN CONTENT: ALL TENANT DETAILS IN LIST VIEW */}
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
-                <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+            {/* CLEAN MONTHLY PAY LIST TABLE (Exact Specification) */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                     <div>
                         <h2 className="text-sm font-bold text-slate-900">
-                            Resident Payment &amp; Deposit Roster
+                            Monthly Tenant Pay List
                         </h2>
                         <p className="text-xs text-slate-500 mt-0.5">
-                            Essential financial status (Advance Security Deposit and Current Month Rent) for all residents.
+                            Clean tabular breakdown of resident rent payments, clearance dates, pending balances, and UPI references.
                         </p>
                     </div>
                     <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                        Showing {filteredTenants.length} Resident{filteredTenants.length === 1 ? '' : 's'}
+                        Showing {filteredItems.length} Statement{filteredItems.length === 1 ? '' : 's'}
                     </span>
                 </div>
 
-                {filteredTenants.length === 0 ? (
-                    <div className="py-12 px-4 text-center flex flex-col items-center justify-center gap-3">
+                {loading ? (
+                    <div className="py-16 text-center flex flex-col items-center justify-center gap-2 text-slate-400">
+                        <Loader2 className="w-7 h-7 animate-spin text-indigo-600" />
+                        <span className="text-xs font-medium">Loading tenant payment statements...</span>
+                    </div>
+                ) : filteredItems.length === 0 ? (
+                    <div className="py-16 px-4 text-center flex flex-col items-center justify-center gap-3">
                         <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
                             <Search className="w-6 h-6" />
                         </div>
-                        <div className="text-sm font-bold text-slate-800">No residents match your filters</div>
+                        <div className="text-sm font-bold text-slate-800">No payment records found</div>
                         <p className="text-xs text-slate-500 max-w-sm">
-                            Try adjusting the floor, room, or search terms to view resident payment status.
+                            Try adjusting the tenant search, room number, or billing month filters.
                         </p>
-                        <button
-                            onClick={handleResetFilters}
-                            className="h-8 px-3 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
-                        >
-                            Clear All Filters
-                        </button>
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
+                        <table className="w-full text-left border-collapse text-xs">
                             <thead>
-                                <tr className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider font-semibold border-b border-slate-200/80">
-                                    <th className="py-3.5 px-4">Resident</th>
-                                    <th className="py-3.5 px-4">Room &amp; Floor</th>
-                                    <th className="py-3.5 px-4 font-mono">Monthly Rent</th>
-                                    <th className="py-3.5 px-4">Advance Paid</th>
-                                    <th className="py-3.5 px-4">Current Month Rent</th>
-                                    <th className="py-3.5 px-4 text-right">Action</th>
+                                <tr className="bg-slate-50 text-slate-600 text-[11px] uppercase tracking-wider font-semibold border-b border-slate-200">
+                                    <th className="py-3 px-4">Tenant Name</th>
+                                    <th className="py-3 px-4">Room No</th>
+                                    <th className="py-3 px-4">Months</th>
+                                    <th className="py-3 px-4">Paid On</th>
+                                    <th className="py-3 px-4 text-right">Pending</th>
+                                    <th className="py-3 px-4">Paid Through (with Details)</th>
+                                    <th className="py-3 px-4 text-center">Action</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100 text-xs">
-                                {filteredTenants.map(t => {
-                                    const fin = getTenantFinancials(t);
+                            <tbody className="divide-y divide-slate-100">
+                                {filteredItems.map(item => {
+                                    const isPaid = item.pendingAmount === 0 || item.status === 'PAID';
+                                    const isUpi = (item.paymentMode || '').toUpperCase().includes('UPI');
+                                    const upiRef = item.upiDetails || item.transactionRef;
+
+                                    const cleanPhone = (item.mobileNumber || '').replace(/\D/g, '');
+                                    const payLink = `${window.location.origin}/pay/${item.invoiceNumber}`;
+                                    const waMsg = encodeURIComponent(
+                                        isPaid
+                                            ? `Hello ${item.tenantName}, your rent payment for Room ${item.roomNo} (${item.monthYear}) has been cleared. View official receipt here: ${payLink}. Reference: ${upiRef || 'Cleared'}. Thank you!`
+                                            : `Hello ${item.tenantName}, your rent invoice of Rs. ${(item.pendingAmount || 0).toLocaleString('en-IN')} for Room ${item.roomNo} (${item.monthYear}) is ready. You can pay securely online via UPI / Cards here: ${payLink}`
+                                    );
+                                    const waUrl = cleanPhone ? `https://wa.me/91${cleanPhone}?text=${waMsg}` : null;
 
                                     return (
-                                        <tr
-                                            key={t.id}
-                                            className="hover:bg-slate-50/80 transition-colors"
-                                        >
-                                            {/* Resident Info: Minimal and Clean (Name, Phone, Initials) */}
-                                            <td className="py-3.5 px-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-9 h-9 rounded-lg bg-[#091426] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
-                                                        {t.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                                            {/* Column 1: Tenant Name */}
+                                            <td className="py-3.5 px-4 font-semibold text-slate-900">
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="w-7 h-7 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-[11px] shrink-0">
+                                                        {(item.tenantName || 'T').charAt(0)}
                                                     </div>
-                                                    <div className="flex flex-col">
-                                                        <span className="font-bold text-slate-900 text-sm">
-                                                            {t.name}
+                                                    <div>
+                                                        <span className="font-bold text-slate-900 block">
+                                                            {item.tenantName}
                                                         </span>
-                                                        <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
-                                                            <Phone className="w-3 h-3 text-slate-400" />
-                                                            <span>{t.phone}</span>
+                                                        <span className="text-[11px] text-slate-400 font-normal">
+                                                            {item.mobileNumber || item.tenantUid}
                                                         </span>
                                                     </div>
                                                 </div>
                                             </td>
 
-                                            {/* Room & Floor */}
+                                            {/* Column 2: Room No */}
                                             <td className="py-3.5 px-4">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">
-                                                        Room {t.roomNumber}
-                                                    </span>
-                                                    <span className="text-[11px] font-medium text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
-                                                        {formatFloorName(fin.floor)}
-                                                    </span>
+                                                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 text-slate-800 border border-slate-200 font-mono font-semibold">
+                                                    <span>Room {item.roomNo}</span>
+                                                    {item.bedNumber && item.bedNumber !== '-' && (
+                                                        <span className="text-slate-500 font-normal">({item.bedNumber})</span>
+                                                    )}
                                                 </div>
                                             </td>
 
-                                            {/* Standard Monthly Rent */}
-                                            <td className="py-3.5 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
-                                                ₹{(t.monthlyRent || 8000).toLocaleString('en-IN')}
-                                                <span className="text-[10px] text-slate-400 font-sans font-normal block">
-                                                    per month
+                                            {/* Column 3: Months */}
+                                            <td className="py-3.5 px-4">
+                                                <span className="font-semibold text-slate-900 block">
+                                                    {item.monthYear}
+                                                </span>
+                                                <span className="text-[10px] font-mono text-slate-400">
+                                                    {item.invoiceNumber}
                                                 </span>
                                             </td>
 
-                                            {/* Advance Paid Details */}
+                                            {/* Column 4: Paid On */}
                                             <td className="py-3.5 px-4">
-                                                {fin.isAdvancePaid ? (
-                                                    <div className="flex flex-col gap-0.5">
-                                                        <span className="inline-flex items-center gap-1 font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded text-[11px] w-fit">
-                                                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                                            <span>Paid • ₹{fin.advanceAmount.toLocaleString('en-IN')}</span>
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-400 font-mono">
-                                                            {fin.advanceReceiptNo}
-                                                        </span>
+                                                {isPaid && item.paidOn && item.paidOn !== '-' ? (
+                                                    <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                                        <span>{item.paidOn}</span>
                                                     </div>
                                                 ) : (
-                                                    <div className="flex flex-col gap-0.5">
-                                                        <span className="inline-flex items-center gap-1 font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded text-[11px] w-fit">
-                                                            <Clock className="w-3 h-3 text-amber-600" />
-                                                            <span>Pending</span>
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-400 font-mono">
-                                                            ₹{fin.advanceAmount.toLocaleString('en-IN')} due
-                                                        </span>
+                                                    <div className="flex items-center gap-1.5 text-amber-700 font-medium">
+                                                        <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                                        <span>Pending</span>
                                                     </div>
                                                 )}
                                             </td>
 
-                                            {/* Current Month Rent Status */}
-                                            <td className="py-3.5 px-4">
-                                                {fin.rentStatus === 'paid' ? (
-                                                    <div className="flex flex-col gap-0.5">
-                                                        <span className="inline-flex items-center gap-1 font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded text-[11px] w-fit">
-                                                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                                            <span>Paid • ₹{fin.rentAmount.toLocaleString('en-IN')}</span>
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-500 font-medium">
-                                                            {fin.cycleName}
-                                                            {fin.paymentMode && ` • ${fin.paymentMode}`}
-                                                        </span>
-                                                    </div>
-                                                ) : fin.rentStatus === 'partially_paid' ? (
-                                                    <div className="flex flex-col gap-0.5">
-                                                        <span className="inline-flex items-center gap-1 font-semibold text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded text-[11px] w-fit">
-                                                            <Clock className="w-3 h-3 text-blue-600" />
-                                                            <span>Partially Paid</span>
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-500 font-medium">
-                                                            {fin.cycleName}
-                                                        </span>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex flex-col gap-0.5">
-                                                        <span className="inline-flex items-center gap-1 font-semibold text-rose-800 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded text-[11px] w-fit">
-                                                            <AlertCircle className="w-3 h-3 text-rose-600" />
-                                                            <span>Pending</span>
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-500 font-medium">
-                                                            {fin.cycleName} • ₹{fin.rentAmount.toLocaleString('en-IN')}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </td>
-
-                                            {/* Action Button: View Detailed Ledger Drawer */}
+                                            {/* Column 5: Pending */}
                                             <td className="py-3.5 px-4 text-right">
-                                                <button
-                                                    onClick={() => {
-                                                        setSelectedLedgerTenant(t);
-                                                        if (onSelectTenant) onSelectTenant(t);
-                                                    }}
-                                                    className="h-8 px-3 bg-slate-100 hover:bg-[#091426] hover:text-white text-slate-800 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                                                >
-                                                    <Receipt className="w-3.5 h-3.5" />
-                                                    <span>View Ledger</span>
-                                                </button>
+                                                {item.pendingAmount === 0 ? (
+                                                    <span className="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                        ₹0 (Cleared)
+                                                    </span>
+                                                ) : (
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="font-bold text-rose-600 text-sm">
+                                                            ₹{item.pendingAmount.toLocaleString('en-IN')}
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-400">
+                                                            of ₹{item.billedAmount.toLocaleString('en-IN')}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </td>
+
+                                            {/* Column 6: Paid Through (with UPI Details) */}
+                                            <td className="py-3.5 px-4">
+                                                {isUpi ? (
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-[11px] w-fit">
+                                                            <Smartphone className="w-3 h-3 text-indigo-600" />
+                                                            <span>UPI</span>
+                                                        </div>
+                                                        {upiRef && upiRef !== '-' ? (
+                                                            <div className="flex items-center gap-1 text-[11px] font-mono text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200/80 w-fit">
+                                                                <span className="text-slate-400 font-sans">UTR:</span>
+                                                                <span className="font-semibold text-slate-800">{upiRef}</span>
+                                                                <button
+                                                                    onClick={() => handleCopy(upiRef)}
+                                                                    className="p-0.5 hover:text-indigo-600 text-slate-400 ml-1 cursor-pointer"
+                                                                    title="Copy UPI UTR Reference"
+                                                                >
+                                                                    {copiedRef === upiRef ? (
+                                                                        <Check className="w-3 h-3 text-emerald-600" />
+                                                                    ) : (
+                                                                        <Copy className="w-3 h-3" />
+                                                                    )}
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-[10px] text-slate-400 italic">UPI clearance recorded</span>
+                                                        )}
+                                                    </div>
+                                                ) : item.paymentMode && item.paymentMode !== '-' ? (
+                                                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-[11px]">
+                                                        <Banknote className="w-3 h-3 text-slate-500" />
+                                                        <span>{item.paymentMode}</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-400 italic text-[11px]">-</span>
+                                                )}
+                                            </td>
+
+                                            {/* Column 7: Action */}
+                                            <td className="py-3.5 px-4 text-center">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    {waUrl && (
+                                                        <a
+                                                            href={waUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${
+                                                                isPaid
+                                                                    ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                                                            }`}
+                                                            title={isPaid ? 'Send receipt link via WhatsApp' : 'Send payment link via WhatsApp'}
+                                                        >
+                                                            <Share2 className="w-3 h-3" />
+                                                            <span>WhatsApp</span>
+                                                        </a>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleCopyPayLink(item.invoiceNumber)}
+                                                        className="p-1.5 hover:bg-slate-100 rounded text-slate-500 hover:text-indigo-600 transition-colors"
+                                                        title="Copy Public Payment Link"
+                                                    >
+                                                        {copiedPayLink === item.invoiceNumber ? (
+                                                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                                        ) : (
+                                                            <Copy className="w-3.5 h-3.5" />
+                                                        )}
+                                                    </button>
+                                                    <a
+                                                        href={`/pay/${item.invoiceNumber}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="p-1.5 hover:bg-slate-100 rounded text-slate-500 hover:text-indigo-600 transition-colors"
+                                                        title="Open Tenant Payment Portal"
+                                                    >
+                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                    </a>
+                                                    <button
+                                                        onClick={() => setSelectedReceipt(item)}
+                                                        className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800"
+                                                        title="View Slip"
+                                                    >
+                                                        <FileText className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -801,288 +607,79 @@ export const TenantPaymentHistoryView: React.FC<TenantPaymentHistoryViewProps> =
                 )}
             </div>
 
-            {/* SLIDE-OVER DRAWER: DETAILED PAYMENT LEDGER & RECEIPTS FOR SELECTED TENANT */}
-            {selectedLedgerTenant && (
-                <div className="fixed inset-0 z-50 bg-black/40 flex justify-end animate-in fade-in duration-150">
-                    <div className="bg-white w-full max-w-2xl h-full shadow-2xl flex flex-col justify-between overflow-hidden animate-in slide-in-from-right duration-200 border-l border-slate-200">
-                        {/* Drawer Header */}
-                        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-[#091426] text-white flex items-center justify-center font-bold text-sm">
-                                    {selectedLedgerTenant.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h2 className="text-base font-bold text-slate-900">
-                                            {selectedLedgerTenant.name}
-                                        </h2>
-                                        <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                            Room {selectedLedgerTenant.roomNumber}
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-slate-500 mt-0.5 font-mono">
-                                        {selectedLedgerTenant.phone} • ₹{(selectedLedgerTenant.monthlyRent || 8000).toLocaleString('en-IN')}/mo
-                                    </p>
-                                </div>
+            {/* RECEIPT / STATEMENT MODAL */}
+            {selectedReceipt && (
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                            <div>
+                                <h3 className="text-sm font-bold text-slate-900">Payment Statement Slip</h3>
+                                <p className="text-[11px] font-mono text-slate-400">{selectedReceipt.invoiceNumber}</p>
                             </div>
-
                             <button
-                                onClick={() => setSelectedLedgerTenant(null)}
-                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                                onClick={() => setSelectedReceipt(null)}
+                                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
                             >
-                                <X className="w-5 h-5" />
+                                <X className="w-4 h-4" />
                             </button>
                         </div>
 
-                        {/* Drawer Content */}
-                        <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
-                            {/* Financial Summary Cards */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200/80">
-                                    <span className="text-[10px] uppercase font-bold text-emerald-800 block">
-                                        Advance Deposit
-                                    </span>
-                                    <span className="text-xl font-bold font-mono text-emerald-700 block mt-1">
-                                        ₹{drawerAdvancePaidAmount.toLocaleString('en-IN')}
-                                    </span>
-                                    <span className="text-[11px] text-emerald-800 font-medium block mt-0.5">
-                                        {drawerAdvanceRecord ? 'Verified & Held in Custody' : 'Standard Deposit Pending'}
-                                    </span>
-                                </div>
-
-                                <div className="p-3.5 bg-blue-50/60 rounded-xl border border-blue-200/80">
-                                    <span className="text-[10px] uppercase font-bold text-blue-800 block">
-                                        Total Rent Cleared
-                                    </span>
-                                    <span className="text-xl font-bold font-mono text-blue-700 block mt-1">
-                                        ₹{drawerTotalRentPaid.toLocaleString('en-IN')}
-                                    </span>
-                                    <span className="text-[11px] text-blue-800 font-medium block mt-0.5">
-                                        {drawerPaymentRecords.filter(p => p.category === 'monthly_rent').length} Monthly Cycles Cleared
-                                    </span>
-                                </div>
+                        <div className="space-y-3 text-xs">
+                            <div className="flex justify-between py-1 border-b border-slate-50">
+                                <span className="text-slate-500">Resident Name:</span>
+                                <span className="font-bold text-slate-900">{selectedReceipt.tenantName}</span>
                             </div>
-
-                            {/* Ledger Filter Tabs */}
-                            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                                    <Receipt className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Payment Records</span>
-                                </h3>
-
-                                <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs">
-                                    <button
-                                        onClick={() => setLedgerFilterType('all')}
-                                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${ledgerFilterType === 'all'
-                                            ? 'bg-white text-slate-900 shadow-2xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                            }`}
-                                    >
-                                        All ({drawerPaymentRecords.length})
-                                    </button>
-                                    <button
-                                        onClick={() => setLedgerFilterType('monthly_rent')}
-                                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${ledgerFilterType === 'monthly_rent'
-                                            ? 'bg-white text-slate-900 shadow-2xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                            }`}
-                                    >
-                                        Rent Only
-                                    </button>
-                                    <button
-                                        onClick={() => setLedgerFilterType('advance_deposit')}
-                                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${ledgerFilterType === 'advance_deposit'
-                                            ? 'bg-white text-slate-900 shadow-2xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                            }`}
-                                    >
-                                        Advance
-                                    </button>
-                                </div>
+                            <div className="flex justify-between py-1 border-b border-slate-50">
+                                <span className="text-slate-500">Room &amp; Bed:</span>
+                                <span className="font-semibold text-slate-800">Room {selectedReceipt.roomNo} ({selectedReceipt.bedNumber})</span>
                             </div>
-
-                            {/* Ledger Entries List */}
-                            {filteredDrawerRecords.length === 0 ? (
-                                <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-slate-100">
-                                    No transaction records found for this resident.
-                                </div>
-                            ) : (
-                                <div className="flex flex-col gap-2.5">
-                                    {filteredDrawerRecords.map(record => {
-                                        const isAdvance = record.category === 'advance_deposit';
-
-                                        return (
-                                            <div
-                                                key={record.id}
-                                                className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${isAdvance
-                                                    ? 'bg-emerald-50/40 border-emerald-200/80'
-                                                    : 'bg-white hover:bg-slate-50/70 border-slate-200/80 shadow-2xs'
-                                                    }`}
-                                            >
-                                                <div className="flex flex-col min-w-0">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <span className="font-semibold text-slate-900 text-xs">
-                                                            {record.periodOrType}
-                                                        </span>
-                                                        {isAdvance ? (
-                                                            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800">
-                                                                Advance
-                                                            </span>
-                                                        ) : (
-                                                            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-blue-50 text-blue-700">
-                                                                Rent
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 font-mono">
-                                                        <span>{record.date}</span>
-                                                        <span>•</span>
-                                                        <span>{record.receiptNumber}</span>
-                                                        <span>•</span>
-                                                        <span>{record.paymentMode}</span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-3 shrink-0">
-                                                    <div className="text-right font-mono">
-                                                        <span className="text-sm font-bold text-slate-900 block">
-                                                            ₹{record.amount.toLocaleString('en-IN')}
-                                                        </span>
-                                                        <span className="text-[10px] text-emerald-600 font-sans font-semibold">
-                                                            Verified
-                                                        </span>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => setActiveReceipt(record)}
-                                                        className="h-8 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-                                                        title="View Receipt"
-                                                    >
-                                                        <FileText className="w-3.5 h-3.5" />
-                                                        <span className="hidden sm:inline">Receipt</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                            <div className="flex justify-between py-1 border-b border-slate-50">
+                                <span className="text-slate-500">Billing Month:</span>
+                                <span className="font-semibold text-slate-800">{selectedReceipt.monthYear}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-50">
+                                <span className="text-slate-500">Billed Amount:</span>
+                                <span className="font-bold text-slate-900">₹{selectedReceipt.billedAmount.toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-50">
+                                <span className="text-slate-500">Amount Paid:</span>
+                                <span className="font-bold text-emerald-600">₹{selectedReceipt.paidAmount.toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-50">
+                                <span className="text-slate-500">Pending Balance:</span>
+                                <span className={`font-bold ${selectedReceipt.pendingAmount > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                                    ₹{selectedReceipt.pendingAmount.toLocaleString('en-IN')}
+                                </span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-50">
+                                <span className="text-slate-500">Payment Mode:</span>
+                                <span className="font-semibold text-slate-800">{selectedReceipt.paymentMode || '-'}</span>
+                            </div>
+                            {selectedReceipt.upiDetails && (
+                                <div className="p-2.5 bg-indigo-50 border border-indigo-100 rounded-lg">
+                                    <span className="text-[10px] font-bold uppercase text-indigo-700 block">UPI Transaction Reference / UTR</span>
+                                    <span className="font-mono text-xs font-bold text-slate-800">{selectedReceipt.upiDetails}</span>
                                 </div>
                             )}
-                        </div>
-
-                        {/* Drawer Footer */}
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-                            <span className="text-xs text-slate-500 font-mono">
-                                {filteredDrawerRecords.length} records displayed
-                            </span>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => window.print()}
-                                    className="h-8 px-3 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                                >
-                                    <Printer className="w-3.5 h-3.5" />
-                                    <span>Print Statement</span>
-                                </button>
-                                <button
-                                    onClick={() => setSelectedLedgerTenant(null)}
-                                    className="h-8 px-3.5 bg-[#091426] hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                                >
-                                    Done
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* OFFICIAL RECEIPT POPUP MODAL */}
-            {activeReceipt && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-in fade-in">
-                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 flex flex-col gap-4 relative">
-                        <button
-                            onClick={() => setActiveReceipt(null)}
-                            className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-
-                        {/* Receipt Header */}
-                        <div className="border-b border-slate-100 pb-3">
-                            <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-lg bg-[#091426] text-white flex items-center justify-center">
-                                    <Building2 className="w-4 h-4 text-blue-400" />
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-bold text-slate-900 font-display">
-                                        Property Operations Ledger
-                                    </h3>
-                                    <p className="text-[10px] text-slate-400">Official Payment Receipt &amp; Voucher</p>
-                                </div>
+                            <div className="flex justify-between py-1">
+                                <span className="text-slate-500">Paid On:</span>
+                                <span className="font-medium text-slate-800">{selectedReceipt.paidOn}</span>
                             </div>
                         </div>
 
-                        {/* Receipt Meta */}
-                        <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between text-xs">
-                            <div>
-                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Receipt Number</span>
-                                <div className="font-mono font-bold text-slate-900">{activeReceipt.receiptNumber}</div>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-[10px] text-slate-400 uppercase font-semibold">Date of Payment</span>
-                                <div className="font-mono font-bold text-slate-900">{activeReceipt.date}</div>
-                            </div>
-                        </div>
-
-                        {/* Resident & Payment Details */}
-                        <div className="flex flex-col gap-2 text-xs text-slate-700">
-                            <div className="flex items-center justify-between py-1 border-b border-slate-100">
-                                <span className="text-slate-500">Resident Name</span>
-                                <span className="font-semibold text-slate-900">
-                                    {activeReceipt.tenantName || (selectedLedgerTenant ? selectedLedgerTenant.name : '')}
-                                </span>
-                            </div>
-                            <div className="flex items-center justify-between py-1 border-b border-slate-100">
-                                <span className="text-slate-500">Room Number</span>
-                                <span className="font-mono font-bold text-slate-900">Room {activeReceipt.roomNumber}</span>
-                            </div>
-                            <div className="flex items-center justify-between py-1 border-b border-slate-100">
-                                <span className="text-slate-500">Payment Nature</span>
-                                <span className="font-medium text-slate-900">{activeReceipt.periodOrType}</span>
-                            </div>
-                            <div className="flex items-center justify-between py-1 border-b border-slate-100">
-                                <span className="text-slate-500">Payment Mode</span>
-                                <span className="font-mono font-bold text-slate-800">{activeReceipt.paymentMode}</span>
-                            </div>
-                            <div className="flex items-center justify-between py-1 border-b border-slate-100">
-                                <span className="text-slate-500">Reference / UTR</span>
-                                <span className="font-mono text-slate-600">{activeReceipt.referenceNumber}</span>
-                            </div>
-                            <div className="flex items-center justify-between py-2 border-b border-slate-200">
-                                <span className="text-sm font-bold text-slate-900">Amount Paid</span>
-                                <span className="text-xl font-bold font-mono text-emerald-700">
-                                    ₹{activeReceipt.amount.toLocaleString('en-IN')}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Digital Verification Stamp */}
-                        <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 flex items-center gap-2 text-[11px] text-emerald-800 font-medium">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span>Digitally verified by RMS Banking Reconciliation Engine.</span>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center justify-end gap-2 pt-1">
-                            <button
-                                onClick={() => setActiveReceipt(null)}
-                                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                            >
-                                Close
-                            </button>
+                        <div className="pt-2 flex items-center justify-end gap-2">
                             <button
                                 onClick={() => window.print()}
-                                className="px-4 py-2 bg-[#091426] hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+                                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold flex items-center gap-1.5"
                             >
                                 <Printer className="w-3.5 h-3.5" />
-                                <span>Print Receipt</span>
+                                Print
+                            </button>
+                            <button
+                                onClick={() => setSelectedReceipt(null)}
+                                className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold"
+                            >
+                                Close
                             </button>
                         </div>
                     </div>

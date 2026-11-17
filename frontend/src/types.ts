@@ -7,7 +7,8 @@ export type PageId =
     | 'ledger'
     | 'reports'
     | 'settings'
-    | 'payment-history';
+    | 'payment-history'
+    | 'reminders';
 
 export enum RoomTypeEnum {
     SINGLE = 'Single',
@@ -65,9 +66,43 @@ export const getCapacityForRoomType = (roomType: string): number => {
     return 1;
 };
 
+export interface Block {
+    id: number;
+    propertyId: number;
+    name: string;
+    code: string;
+    status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+export interface Floor {
+    id: number;
+    blockId: number;
+    floorNumber: number;
+    name: string;
+    status: 'ACTIVE' | 'INACTIVE';
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+export interface Bed {
+    id: number;
+    roomId: number;
+    bedNumber: string;
+    baseRent?: number;
+    status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'MAINTENANCE';
+    createdAt?: string;
+    updatedAt?: string;
+}
+
 export interface Room {
+    id?: number;
     roomNumber: string;
     floor: string | number;
+    floorId?: number;
+    blockId?: number;
+    blockName?: string;
     roomType?: string;
     rent: number;
     capacity: number; // Can be 1, 2, 3, 4, 5, 6, etc.
@@ -78,6 +113,7 @@ export interface Room {
     vacatingResident?: string;
     residents: string[];
     amenities?: string[];
+    beds?: Bed[];
 }
 
 export interface Tenant {
@@ -97,6 +133,8 @@ export interface Tenant {
     aadharNumber?: string; // 12-digit continuous varchar in DB e.g. "548921049382"
     parentContact?: string;
     parentNumber?: string;
+    bedId?: number;
+    bedNumber?: string;
     paymentStatus?: 'verified' | 'pending';
     status: 'confirmed' | 'notice' | 'pending' | 'vacated' | 'inactive';
 }
@@ -109,6 +147,8 @@ export interface Admission {
     parentContact?: string;
     parentNumber?: string;
     roomNumber: string;
+    bedId?: number;
+    bedNumber?: string;
     propertyId?: number;
     monthlyRent: number;
     moveInDate: string;
@@ -192,6 +232,7 @@ export interface Payment {
     invoiceNumber?: string;
     tenantUid: string;
     tenantName?: string;
+    roomNo?: string;
     amount: number;
     paymentMode: string;
     transactionReference?: string;
@@ -223,6 +264,7 @@ export interface Property {
     address?: string;
     city?: string;
     state?: string;
+    pincode?: string;
     propertyType?: string;
     totalFloors?: number;
     totalRooms?: number;
@@ -367,4 +409,286 @@ export interface DemographicsReport {
         color: string;
     }[];
 }
+
+export interface AnalyticsKpis {
+    totalBeds: number;
+    occupiedBeds: number;
+    reservedBeds: number;
+    availableBeds: number;
+    maintenanceBeds: number;
+    occupancyRate: number;
+    totalBilledAmount: number;
+    totalCollectedAmount: number;
+    totalPendingAmount: number;
+    collectionEfficiency: number;
+    potentialMonthlyRevenue: number;
+    potentialRevPab: number;
+    realizedRevPab: number;
+    monthlyLostRevenue: number;
+    yieldRealizationRate: number;
+    activeTenantsCount: number;
+}
+
+export interface RoomTypeYield {
+    roomType: string;
+    totalRooms: number;
+    totalBeds: number;
+    occupiedBeds: number;
+    availableBeds: number;
+    reservedBeds: number;
+    occupancyRate: number;
+    averageRentPerBed: number;
+    potentialRevenue: number;
+    realizedRevenue: number;
+    lostRevenue: number;
+    revPab: number;
+}
+
+export interface RevenueTrend {
+    month: string;
+    monthLabel: string;
+    billedAmount: number;
+    collectedAmount: number;
+    pendingAmount: number;
+    collectionRate: number;
+    paymentsCount: number;
+}
+
+export interface DefaulterItem {
+    tenantUid: string;
+    tenantName: string;
+    mobileNumber: string;
+    roomNo: string;
+    bedNumber: string;
+    bedId?: number;
+    invoiceNumber: string;
+    monthYear: string;
+    dueDate: string;
+    amount: number;
+    paidAmount: number;
+    pendingAmount: number;
+    daysOverdue: number;
+    agingCategory: '0-15 Days' | '16-30 Days' | '31-60 Days' | '60+ Days' | string;
+}
+
+export interface DefaulterAgingSummary {
+    currentOverdue: number;
+    overdue16to30: number;
+    overdue31to60: number;
+    overdue60Plus: number;
+    totalOverdueAmount: number;
+    totalDefaultersCount: number;
+}
+
+export interface DefaulterAgingReport {
+    summary: DefaulterAgingSummary;
+    defaulters: DefaulterItem[];
+}
+
+export interface SecurityDepositItem {
+    tenantUid: string;
+    tenantName: string;
+    mobileNumber: string;
+    roomNo: string;
+    bedNumber: string;
+    depositAmount: number;
+    advanceStatus: string;
+    checkInDate: string;
+    vacateStatus: string;
+    repayableEstimate: number;
+}
+
+export interface SecurityDepositReport {
+    totalDepositsHeld: number;
+    totalTenantsWithDeposits: number;
+    pendingRefundLiability: number;
+    netRetainedDeposits: number;
+    deposits: SecurityDepositItem[];
+}
+
+export interface TurnoverAnalytics {
+    averageStayDurationMonths: number;
+    totalAdmissionsCount: number;
+    totalVacatesCount: number;
+    retentionRate: number;
+    vacateReasons: Record<string, number>;
+}
+
+export interface TenantMonthlyPayItem {
+    id: number;
+    invoiceNumber: string;
+    tenantUid: string;
+    tenantName: string;
+    roomNo: string;
+    bedNumber: string;
+    mobileNumber: string;
+    monthYear: string;
+    billedAmount: number;
+    paidAmount: number;
+    pendingAmount: number;
+    paidOn: string;
+    paymentMode: string;
+    upiDetails?: string;
+    transactionRef?: string;
+    status: string;
+    dueDate?: string;
+}
+
+export interface RazorpayOrderResponse {
+    orderId: string;
+    keyId: string;
+    amountInPaise: number;
+    amountInRupees: number;
+    currency: string;
+    invoiceNumber: string;
+    tenantName: string;
+    tenantContact: string;
+    companyName: string;
+    description: string;
+    simulationMode: boolean;
+}
+
+export interface RazorpayVerifyRequest {
+    orderId: string;
+    paymentId: string;
+    signature: string;
+    paymentMethod?: string;
+    vpa?: string;
+}
+
+export interface PublicInvoice {
+    id: number;
+    invoiceNumber: string;
+    tenantUid: string;
+    tenantName: string;
+    tenantPhone?: string;
+    roomNo: string;
+    monthYear: string;
+    amount: number;
+    paidAmount: number;
+    pendingAmount: number;
+    dueDate: string;
+    status: 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | string;
+    paidOn?: string;
+    paymentMode?: string;
+    transactionRef?: string;
+    propertyId?: number;
+    propertyName?: string;
+    propertyAddress?: string;
+    propertyContact?: string;
+}
+
+export interface RentReminderItem {
+    invoiceId: number;
+    invoiceNumber: string;
+    tenantUid: string;
+    tenantName: string;
+    mobileNumber: string;
+    roomNo: string;
+    monthYear: string;
+    totalAmount: number;
+    paidAmount: number;
+    pendingAmount: number;
+    dueDate: string;
+    reminderType: 'UPCOMING_DUE' | 'DUE_TODAY' | 'OVERDUE_MILD' | 'OVERDUE_URGENT' | 'FINAL_NOTICE' | string;
+    daysOffset: number;
+    urgency: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL' | string;
+    paymentLink: string;
+    formattedWhatsAppMessage: string;
+    clickToChatUrl: string;
+    lastReminderSentAt?: string;
+    totalRemindersSent: number;
+    propertyId?: number;
+    propertyName?: string;
+}
+
+export interface SendReminderRequest {
+    invoiceIds: number[];
+    channel?: 'WHATSAPP' | 'SMS' | 'EMAIL' | string;
+    customMessage?: string;
+}
+
+export interface SendReminderResult {
+    totalRequested: number;
+    successCount: number;
+    failedCount: number;
+    channel: string;
+    dispatchedInvoiceNumbers: string[];
+    errors: string[];
+}
+
+export interface ReminderStats {
+    totalPendingInvoices: number;
+    totalPendingAmount: number;
+    dueTodayCount: number;
+    upcomingCount: number;
+    overdueMildCount: number;
+    overdueCriticalCount: number;
+    remindersSentToday: number;
+    totalRemindersLogged: number;
+}
+
+export interface ReminderLog {
+    id: number;
+    invoiceId: number;
+    invoiceNumber: string;
+    tenantUid: string;
+    tenantName: string;
+    mobileNumber?: string;
+    email?: string;
+    propertyId?: number;
+    channel: string;
+    reminderType: string;
+    daysOffset: number;
+    amountDue: number;
+    messageBody: string;
+    paymentLink: string;
+    status: string;
+    errorMessage?: string;
+    sentAt: string;
+    createdAt: string;
+}
+
+export interface ReminderSchedulerConfig {
+    id: number;
+    enabled: boolean;
+    cronExpression: string;
+    morningTime: string;
+    targetCategories: string[];
+    channel: string;
+    cooldownHours: number;
+    lastRunAt?: string | null;
+    lastRunStatus?: string | null;
+    lastRunSummary?: string | null;
+    nextRunEstimate?: string | null;
+}
+
+export interface ReminderSchedulerRunResult {
+    runId: number;
+    triggeredBy: string;
+    status: string;
+    invoicesEvaluated: number;
+    remindersDispatched: number;
+    remindersSkipped: number;
+    dispatchedInvoiceNumbers: string[];
+    skippedInvoiceNumbers: string[];
+    summaryNotes: string;
+    executionDurationMs: number;
+    executedAt: string;
+}
+
+export interface ReminderSchedulerRun {
+    id: number;
+    triggeredBy: string;
+    startTime: string;
+    endTime?: string | null;
+    status: string;
+    invoicesEvaluated: number;
+    remindersDispatched: number;
+    remindersSkipped: number;
+    summaryNotes?: string | null;
+    createdAt: string;
+}
+
+
 

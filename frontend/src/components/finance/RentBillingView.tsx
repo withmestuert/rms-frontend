@@ -15,7 +15,15 @@ import {
     Banknote,
     Smartphone,
     X,
+    Layers,
+    Building2,
+    Printer,
+    Share2,
+    ExternalLink,
+    Copy,
+    Bell,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Invoice, Tenant } from '../../types';
 
 interface RentBillingViewProps {
@@ -33,14 +41,24 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
     onGenerateCycle,
     onCreateInvoice,
 }) => {
+    const navigate = useNavigate();
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'partially_paid' | 'pending' | 'upi' | 'cash'>('all');
     const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
+    const [selectedInvoiceForReceipt, setSelectedInvoiceForReceipt] = useState<Invoice | null>(null);
     const [selectedPaymentMode, setSelectedPaymentMode] = useState<'UPI' | 'Cash' | 'NEFT' | 'Credit Card'>('UPI');
     const [paymentReference, setPaymentReference] = useState('');
     const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
     const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
     const [paymentError, setPaymentError] = useState<string | null>(null);
+    const [copiedPayLink, setCopiedPayLink] = useState<string | null>(null);
+
+    const handleCopyPayLink = (invNum: string) => {
+        const link = `${window.location.origin}/pay/${invNum}`;
+        navigator.clipboard.writeText(link);
+        setCopiedPayLink(invNum);
+        setTimeout(() => setCopiedPayLink(null), 2000);
+    };
 
     const currentNow = new Date();
     const currentYearNum = currentNow.getFullYear();
@@ -107,6 +125,14 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
         <div className="flex flex-col w-full gap-6">
             {/* Action Bar */}
             <div className="flex items-center justify-end gap-2">
+                <button
+                    type="button"
+                    onClick={() => navigate('/reminders')}
+                    className="h-9 px-3.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-xs"
+                >
+                    <Bell className="w-4 h-4 text-blue-600" />
+                    <span>Reminders &amp; Dispatch</span>
+                </button>
                 {onCreateInvoice && (
                     <button
                         type="button"
@@ -246,7 +272,7 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
                             <tr className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider font-semibold border-b border-slate-200/80">
                                 <th className="py-3 px-4">Invoice Number</th>
                                 <th className="py-3 px-4">Resident</th>
-                                <th className="py-3 px-4">Assigned Unit</th>
+                                <th className="py-3 px-4">Room &amp; Floor</th>
                                 <th className="py-3 px-4">Billing Month</th>
                                 <th className="py-3 px-4 font-mono text-right">Tariff Due</th>
                                 <th className="py-3 px-4">Settlement &amp; Status</th>
@@ -277,7 +303,13 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
                                                 <div className="font-mono text-[10px] text-slate-400">{inv.tenantUid}</div>
                                             </td>
                                             <td className="py-3.5 px-4 font-medium text-slate-800">
-                                                {inv.roomNumber}
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="font-bold text-slate-800">Room {inv.roomNumber}</span>
+                                                    <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-medium">
+                                                        <Layers className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                                                        <span>Floor {inv.roomNumber.charAt(0)}</span>
+                                                    </span>
+                                                </div>
                                             </td>
                                             <td className="py-3.5 px-4 text-slate-600 font-medium">
                                                 {inv.monthYear}
@@ -333,48 +365,101 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
                                                 )}
                                             </td>
                                             <td className="py-3.5 px-4 text-right">
-                                                {inv.status !== 'paid' ? (
-                                                    <div className="flex items-center justify-end gap-1.5">
-                                                        <button
-                                                            onClick={() => {
-                                                                onRecordPayment(inv.id, 'UPI', undefined, undefined, remaining);
-                                                            }}
-                                                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1"
-                                                            title="Pay full remaining balance via UPI"
-                                                        >
-                                                            <Smartphone className="w-3 h-3" />
-                                                            <span>Pay UPI</span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                onRecordPayment(inv.id, 'Cash', undefined, undefined, remaining);
-                                                            }}
-                                                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1"
-                                                            title="Pay full remaining balance in Cash"
-                                                        >
-                                                            <Banknote className="w-3 h-3" />
-                                                            <span>Pay Cash</span>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedInvoiceForPayment(inv);
-                                                                setPaymentAmount(remaining);
-                                                            }}
-                                                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-medium transition-colors"
-                                                            title="Partial payment or other modes"
-                                                        >
-                                                            Custom...
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <button
-                                                        onClick={() => alert(`Receipt downloaded for ${inv.invoiceNumber}`)}
-                                                        className="p-1 hover:bg-slate-200 text-slate-400 hover:text-slate-800 rounded transition-colors"
-                                                        title="Download Receipt"
-                                                    >
-                                                        <Download className="w-4 h-4" />
-                                                    </button>
-                                                )}
+                                                {(() => {
+                                                    const payLink = `${window.location.origin}/pay/${inv.invoiceNumber}`;
+                                                    const tenantObj = tenants.find(t => t.id === inv.tenantUid);
+                                                    const cleanPhone = (tenantObj?.phone || '').replace(/\D/g, '');
+                                                    const waMsg = encodeURIComponent(
+                                                        inv.status === 'paid'
+                                                            ? `Hello ${inv.tenantName}, your rent payment for Room ${inv.roomNumber} (${inv.monthYear}) has been cleared. View official receipt here: ${payLink}. Thank you!`
+                                                            : `Hello ${inv.tenantName}, your rent invoice of Rs. ${remaining.toLocaleString('en-IN')} for Room ${inv.roomNumber} (${inv.monthYear}) is ready. Pay securely online via UPI / Cards here: ${payLink}`
+                                                    );
+                                                    const waUrl = cleanPhone ? `https://wa.me/91${cleanPhone}?text=${waMsg}` : `https://api.whatsapp.com/send?text=${waMsg}`;
+
+                                                    return (
+                                                        <div className="flex items-center justify-end gap-1.5">
+                                                            {inv.status !== 'paid' ? (
+                                                                <>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            onRecordPayment(inv.id, 'UPI', undefined, undefined, remaining);
+                                                                        }}
+                                                                        className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1"
+                                                                        title="Pay full remaining balance via UPI"
+                                                                    >
+                                                                        <Smartphone className="w-3 h-3" />
+                                                                        <span>UPI</span>
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            onRecordPayment(inv.id, 'Cash', undefined, undefined, remaining);
+                                                                        }}
+                                                                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1"
+                                                                        title="Pay full remaining balance in Cash"
+                                                                    >
+                                                                        <Banknote className="w-3 h-3" />
+                                                                        <span>Cash</span>
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSelectedInvoiceForPayment(inv);
+                                                                            setPaymentAmount(remaining);
+                                                                        }}
+                                                                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-medium transition-colors"
+                                                                        title="Partial payment or other modes"
+                                                                    >
+                                                                        Custom...
+                                                                    </button>
+                                                                </>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => setSelectedInvoiceForReceipt(inv)}
+                                                                    className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1"
+                                                                    title="View & Print Official Receipt"
+                                                                >
+                                                                    <Receipt className="w-3.5 h-3.5 text-emerald-700" />
+                                                                    <span>Receipt</span>
+                                                                </button>
+                                                            )}
+
+                                                            {/* WhatsApp Online Payment Link */}
+                                                            <a
+                                                                href={waUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="px-2 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1"
+                                                                title="Share Payment Link on WhatsApp"
+                                                            >
+                                                                <Share2 className="w-3 h-3" />
+                                                                <span>Link</span>
+                                                            </a>
+
+                                                            {/* Copy Online Payment Link */}
+                                                            <button
+                                                                onClick={() => handleCopyPayLink(inv.invoiceNumber)}
+                                                                className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-indigo-600 transition-colors"
+                                                                title="Copy Public Pay Link"
+                                                            >
+                                                                {copiedPayLink === inv.invoiceNumber ? (
+                                                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                                                ) : (
+                                                                    <Copy className="w-3.5 h-3.5" />
+                                                                )}
+                                                            </button>
+
+                                                            {/* Direct Portal Link */}
+                                                            <a
+                                                                href={`/pay/${inv.invoiceNumber}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-indigo-600 transition-colors"
+                                                                title="Open Tenant Pay Portal"
+                                                            >
+                                                                <ExternalLink className="w-3.5 h-3.5" />
+                                                            </a>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                         </tr>
                                     );
@@ -834,6 +919,121 @@ export const RentBillingView: React.FC<RentBillingViewProps> = ({
                             >
                                 <Plus className="w-4 h-4" />
                                 <span>{isGeneratingCycle ? 'Generating...' : 'Generate Cycle Invoices'}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Official Receipt Modal */}
+            {selectedInvoiceForReceipt && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#091426]/60 backdrop-blur-xs animate-in fade-in duration-150">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
+                        {/* Printable Receipt Content */}
+                        <div className="p-6 flex flex-col gap-5">
+                            {/* Receipt Header */}
+                            <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700">
+                                        <Receipt className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-slate-900 font-display">
+                                            Official Rent Receipt
+                                        </h3>
+                                        <p className="text-xs text-slate-500 font-medium">
+                                            Seyon Stays Womens PG • RMS Financial Core
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-xs font-mono font-bold bg-slate-100 text-slate-800 px-2.5 py-1 rounded-md border border-slate-200 block">
+                                        {selectedInvoiceForReceipt.invoiceNumber}
+                                    </span>
+                                    <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider block mt-1">
+                                        ● PAID &amp; RECONCILED
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Resident & Room Details */}
+                            <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200/80 text-xs">
+                                <div>
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Resident Name</span>
+                                    <span className="font-bold text-slate-900 text-sm mt-0.5 block">{selectedInvoiceForReceipt.tenantName}</span>
+                                    <span className="text-[11px] text-slate-500 font-mono">UID: {selectedInvoiceForReceipt.tenantUid || 'N/A'}</span>
+                                </div>
+                                <div>
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Room / Accommodation</span>
+                                    <span className="font-bold text-slate-900 text-sm mt-0.5 block">Room {selectedInvoiceForReceipt.roomNumber}</span>
+                                    <span className="text-[11px] text-slate-500">Billing Period: {selectedInvoiceForReceipt.monthYear}</span>
+                                </div>
+                            </div>
+
+                            {/* Payment Breakdown */}
+                            <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold text-[11px]">
+                                        <tr>
+                                            <th className="py-2.5 px-3">Description</th>
+                                            <th className="py-2.5 px-3">Mode</th>
+                                            <th className="py-2.5 px-3 text-right">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        <tr>
+                                            <td className="py-3 px-3">
+                                                <div className="font-semibold text-slate-800">Monthly Accommodation &amp; Rent</div>
+                                                <div className="text-[11px] text-slate-400 font-mono">Ref: {selectedInvoiceForReceipt.transactionRef || 'SYSTEM-RECON'}</div>
+                                            </td>
+                                            <td className="py-3 px-3">
+                                                <span className="inline-flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded text-[10px] uppercase">
+                                                    {selectedInvoiceForReceipt.paymentMode || 'UPI'}
+                                                </span>
+                                            </td>
+                                            <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 text-sm">
+                                                ₹{(selectedInvoiceForReceipt.paidAmount ?? selectedInvoiceForReceipt.amount).toLocaleString('en-IN')}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                    <tfoot className="bg-emerald-50/50 border-t border-emerald-100 font-bold">
+                                        <tr>
+                                            <td colSpan={2} className="py-2.5 px-3 text-emerald-950 font-semibold">Total Amount Settled</td>
+                                            <td className="py-2.5 px-3 text-right text-emerald-800 text-base font-mono">
+                                                ₹{(selectedInvoiceForReceipt.paidAmount ?? selectedInvoiceForReceipt.amount).toLocaleString('en-IN')}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+
+                            {/* Verification Footer */}
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-3">
+                                <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                                    <span>Authorized digital receipt generated via RMS PostgreSQL ledger</span>
+                                </div>
+                                <span className="font-mono text-slate-400 text-[10px]">
+                                    {selectedInvoiceForReceipt.paidOn ? `Settled on ${selectedInvoiceForReceipt.paidOn}` : 'Verified Payment'}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Modal Footer Controls */}
+                        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                            <button
+                                type="button"
+                                onClick={() => window.print()}
+                                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                            >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>Print Receipt</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setSelectedInvoiceForReceipt(null)}
+                                className="px-4 py-2 bg-[#091426] hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors"
+                            >
+                                Close
                             </button>
                         </div>
                     </div>

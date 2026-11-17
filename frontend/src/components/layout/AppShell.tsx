@@ -400,6 +400,9 @@ export const AppShell: React.FC<AppShellProps> = ({
             case '/payment-history':
                 return 'Tenant Payment History';
 
+            case '/reminders':
+                return 'Rent Reminders & Dispatch Center';
+
             case '/reports':
                 return 'Operational Reports';
 
@@ -818,6 +821,28 @@ export const AppShell: React.FC<AppShellProps> = ({
                                 }
                             >
                                 Payment History
+                            </span>
+                        </NavLink>
+
+                        <NavLink
+                            id="nav-reminders"
+                            to="/reminders"
+                            onClick={() =>
+                                setIsMobileSidebarOpen(false)
+                            }
+                            title="Rent Reminders & Dispatch"
+                            className={navigationClassName}
+                        >
+                            <Bell className="w-4 h-4 shrink-0" />
+
+                            <span
+                                className={
+                                    isSidebarCollapsed
+                                        ? 'md:hidden'
+                                        : 'inline'
+                                }
+                            >
+                                Reminders &amp; Dispatch
                             </span>
                         </NavLink>
 

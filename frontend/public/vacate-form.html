@@ -821,6 +821,7 @@
             submitBtn.disabled = true;
             submitBtn.innerHTML = 'Checking notice records...';
 
+            const propId = getParam('propertyId') || getParam('property_id') || '1';
             const payload = {
                 tenantUid: tidInput.value.trim(),
                 tenantName: nameInput.value.trim(),
@@ -830,7 +831,8 @@
                 advancePaid: parseFloat(advanceInput.value) || 0,
                 requestDate: reqDateInput.value,
                 expectedLeavingDate: leaveDateInput.value,
-                reason: reasonInput.value.trim()
+                reason: reasonInput.value.trim(),
+                propertyId: parseInt(propId, 10) || 1
             };
 
             try {

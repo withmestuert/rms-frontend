@@ -20,6 +20,9 @@ import {
     Smartphone,
     ExternalLink,
     PieChart,
+    Building2,
+    Layers,
+    BedDouble,
 } from 'lucide-react';
 import { CriticalAction, Admission, Room, Tenant, Invoice, PageId, VacateRequest } from '../../types';
 import { apiService } from '../../services/apiService';
@@ -41,6 +44,7 @@ interface DashboardViewProps {
     onNavigate: (page: PageId) => void;
     onQuickAdmission: () => void;
     onRecordPayment?: (invoiceId: string, paymentMode: string) => void;
+    onRefreshData?: () => Promise<void> | void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -53,6 +57,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     onNavigate,
     onQuickAdmission,
     onRecordPayment,
+    onRefreshData,
 }) => {
     const availableMonths = useMemo(() => {
         return getAvailableMonths(invoices, tenants);
@@ -68,6 +73,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const [vacateRequests, setVacateRequests] = useState<VacateRequest[]>([]);
     const [isVacateModalOpen, setIsVacateModalOpen] = useState(false);
     const [hoveredSlice, setHoveredSlice] = useState<'paid' | 'unpaid' | null>(null);
+    const [dashboardFloorFilter, setDashboardFloorFilter] = useState<string>('all');
 
     // Keep selectedMonth aligned with available months that hold data
     useEffect(() => {
@@ -99,6 +105,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const totalVacant = Math.max(0, totalCapacity - totalOccupied);
     const occupancyPercentage =
         totalCapacity > 0 ? ((totalOccupied / totalCapacity) * 100).toFixed(1) : '0.0';
+
+    const availableDashboardFloors = useMemo(() => {
+        const set = new Set<string>();
+        rooms.forEach(r => {
+            if (r.floor !== undefined && r.floor !== null) set.add(String(r.floor));
+        });
+        if (set.size === 0) ['1', '2', '3', '4'].forEach(f => set.add(f));
+        return Array.from(set).sort();
+    }, [rooms]);
+
+    const floorStats = useMemo(() => {
+        return availableDashboardFloors.map(fl => {
+            const floorRooms = rooms.filter(r => String(r.floor) === fl);
+            const cap = floorRooms.reduce((acc, r) => acc + (r.capacity || 0), 0);
+            const occ = floorRooms.reduce((acc, r) => acc + (r.occupied || 0), 0);
+            return {
+                floor: fl,
+                roomsCount: floorRooms.length,
+                capacity: cap,
+                occupied: occ,
+                available: Math.max(0, cap - occ),
+            };
+        });
+    }, [rooms, availableDashboardFloors]);
+
+    const filteredDashboardRooms = useMemo(() => {
+        if (dashboardFloorFilter === 'all') return rooms;
+        return rooms.filter(r => String(r.floor) === dashboardFloorFilter);
+    }, [rooms, dashboardFloorFilter]);
 
     // --- 2. Monthly Rent Payment Summary (Fetches data based on selected month) ---
     const rentSummary = useMemo(() => {
@@ -719,26 +754,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             </span>
                         </div>
 
-                        {/* Progress Bar */}
-                        <div className="flex flex-col gap-1.5">
+                        {/* Progress Bar & Hierarchy Breakdown */}
+                        <div className="flex flex-col gap-2">
                             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                                 <div
                                     className="bg-blue-600 h-full rounded-full transition-all duration-500"
                                     style={{ width: `${Math.min(100, Number(occupancyPercentage))}%` }}
                                 />
                             </div>
-                            <div className="grid grid-cols-3 gap-2 text-center pt-1">
+
+                            {/* 4-Item Hierarchy Metric Grid */}
+                            <div className="grid grid-cols-4 gap-1.5 text-center pt-0.5">
                                 <div className="p-1.5 bg-slate-50 rounded-lg border border-slate-100">
-                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Occupied</span>
-                                    <span className="text-xs font-extrabold text-slate-800 font-mono">{totalOccupied}</span>
+                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Blocks</span>
+                                    <span className="text-xs font-extrabold text-slate-800 font-mono">1</span>
                                 </div>
                                 <div className="p-1.5 bg-slate-50 rounded-lg border border-slate-100">
-                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Vacant</span>
-                                    <span className="text-xs font-extrabold text-emerald-700 font-mono">{totalVacant}</span>
+                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Floors</span>
+                                    <span className="text-xs font-extrabold text-slate-800 font-mono">{availableDashboardFloors.length}</span>
                                 </div>
                                 <div className="p-1.5 bg-slate-50 rounded-lg border border-slate-100">
                                     <span className="text-[9px] uppercase font-bold text-slate-400 block">Rooms</span>
                                     <span className="text-xs font-extrabold text-slate-800 font-mono">{totalRooms}</span>
+                                </div>
+                                <div className="p-1.5 bg-slate-50 rounded-lg border border-slate-100">
+                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Beds</span>
+                                    <span className="text-xs font-extrabold text-blue-700 font-mono">{totalCapacity}</span>
+                                </div>
+                            </div>
+
+                            {/* Floor-wise Mini Occupancy Bars */}
+                            <div className="flex flex-col gap-1 pt-1.5 border-t border-slate-100 text-[11px]">
+                                <div className="flex justify-between items-center text-slate-500 font-medium">
+                                    <span className="flex items-center gap-1">
+                                        <Layers className="w-3 h-3 text-slate-400" />
+                                        <span>Floor Distribution:</span>
+                                    </span>
+                                    <span className="font-mono text-[10px]">{totalOccupied}/{totalCapacity} Beds Occupied</span>
+                                </div>
+                                <div className="grid grid-cols-4 gap-1.5 pt-0.5">
+                                    {floorStats.map(fs => (
+                                        <div key={fs.floor} className="bg-slate-50 p-1.5 rounded-lg border border-slate-200/60 text-center">
+                                            <span className="text-[9px] uppercase font-bold text-slate-400 block">Fl {fs.floor}</span>
+                                            <span className="text-[11px] font-bold text-slate-800 font-mono">{fs.occupied}/{fs.capacity}</span>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         </div>
@@ -757,14 +817,52 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* Rooms Availability */}
             <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-xs flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-200/70 text-blue-600 flex items-center justify-center">
-                            <DoorOpen className="w-4 h-4" />
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-200/70 text-blue-600 flex items-center justify-center">
+                                <DoorOpen className="w-4 h-4" />
+                            </div>
+                            <div>
+                                <h2 className="text-sm font-bold text-[#091426]">
+                                    Rooms Availability
+                                </h2>
+                                <p className="text-[11px] text-slate-400">Click any room to open inventory management</p>
+                            </div>
                         </div>
-                        <div>
-                            <h2 className="text-sm font-bold text-[#091426]">
-                                Rooms Availability
-                            </h2>
+
+                        {/* Floor Quick Filter Pills */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                            <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 shrink-0">
+                                <Layers className="w-3.5 h-3.5 text-slate-500" /> Floor:
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setDashboardFloorFilter('all')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
+                                    dashboardFloorFilter === 'all'
+                                        ? 'bg-blue-600 text-white shadow-2xs'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                                All ({rooms.length})
+                            </button>
+                            {availableDashboardFloors.map(fl => {
+                                const count = rooms.filter(r => String(r.floor) === fl).length;
+                                return (
+                                    <button
+                                        key={fl}
+                                        type="button"
+                                        onClick={() => setDashboardFloorFilter(fl)}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
+                                            dashboardFloorFilter === fl
+                                                ? 'bg-blue-600 text-white shadow-2xs'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        }`}
+                                    >
+                                        Floor {fl} ({count})
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
                     <div className="flex items-center gap-4 text-xs">
@@ -785,12 +883,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 {/* Room Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                    {rooms.length === 0 ? (
+                    {filteredDashboardRooms.length === 0 ? (
                         <div className="col-span-full py-8 text-center text-slate-400 text-xs">
-                            No rooms found for this property.
+                            No rooms match the selected floor filter.
                         </div>
                     ) : (
-                        rooms.map(room => {
+                        filteredDashboardRooms.map(room => {
                         const isFull = room.occupied >= room.capacity;
                         const hasNotice = room.status === 'vacate_notice';
 
@@ -958,7 +1056,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 isOpen={isVacateModalOpen}
                 onClose={() => setIsVacateModalOpen(false)}
                 requests={vacateRequests}
-                onRefresh={loadVacateRequests}
+                onRefresh={async () => {
+                    await loadVacateRequests();
+                    if (onRefreshData) await onRefreshData();
+                }}
             />
         </div>
     );

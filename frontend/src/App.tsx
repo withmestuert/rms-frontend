@@ -11,10 +11,15 @@ import { LedgerView } from './components/finance/LedgerView';
 import { ReportsView } from './components/reports/ReportsView';
 import { SettingsView } from './components/settings/SettingsView';
 import { TenantPaymentHistoryView } from './components/tenants/TenantPaymentHistoryView';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { PublicTenantPayView } from './components/public/PublicTenantPayView';
+import { RentReminderCenterView } from './components/finance/RentReminderCenterView';
 
 export function App() {
     const navigate = useNavigate();
+    const location = useLocation();
+
+
 
     // React Router is the single source of navigation state.
     // Existing feature components can continue using PageId callbacks.
@@ -29,6 +34,7 @@ export function App() {
             reports: '/reports',
             settings: '/settings',
             'payment-history': '/payment-history',
+            reminders: '/reminders',
         };
 
         navigate(routes[page]);
@@ -141,6 +147,8 @@ export function App() {
         rentPerMonth: number;
         occupancy: number;
         available: boolean;
+        blockId?: number;
+        floorId?: number;
     }) => {
         await apiService.createRoom(roomData);
 
@@ -353,6 +361,16 @@ export function App() {
         }
     };
 
+    // Public Tenant Payment Route (Mobile-first standalone consumer flow without admin AppShell)
+    if (location.pathname.startsWith('/pay/') || location.pathname === '/pay') {
+        return (
+            <Routes>
+                <Route path="/pay/:invoiceNumber" element={<PublicTenantPayView />} />
+                <Route path="/pay" element={<PublicTenantPayView />} />
+            </Routes>
+        );
+    }
+
     if (loading) {
         return (
             <div className="min-h-screen bg-[#f8f9ff] flex items-center justify-center font-mono text-xs text-slate-500">
@@ -409,6 +427,7 @@ export function App() {
                             onNavigate={handleNavigate}
                             onQuickAdmission={() => handleNavigate('admissions')}
                             onRecordPayment={handleRecordPayment}
+                            onRefreshData={loadData}
                         />
                     }
                 />
@@ -418,6 +437,7 @@ export function App() {
                     element={
                         <TenantsView
                             tenants={tenants}
+                            rooms={rooms}
                             onAddTenant={handleAddTenant}
                             onUpdateTenant={handleUpdateTenant}
                             onDeleteTenant={handleDeleteTenant}
@@ -434,18 +454,17 @@ export function App() {
                 <Route
                     path="/payment-history"
                     element={
-                        selectedPaymentTenant || tenants.length > 0 ? (
-                            <TenantPaymentHistoryView
-                                tenant={selectedPaymentTenant || tenants[0]}
-                                allTenants={tenants}
-                                rooms={rooms}
-                                invoices={invoices}
-                                onSelectTenant={setSelectedPaymentTenant}
-                                onBack={() => navigate('/tenants')}
-                            />
-                        ) : (
-                            <Navigate to="/tenants" replace />
-                        )
+                        <TenantPaymentHistoryView
+                            tenant={selectedPaymentTenant || undefined}
+                            allTenants={tenants}
+                            rooms={rooms}
+                            invoices={invoices}
+                            onSelectTenant={setSelectedPaymentTenant}
+                            onBack={() => {
+                                setSelectedPaymentTenant(null);
+                                navigate('/tenants');
+                            }}
+                        />
                     }
                 />
 
@@ -524,6 +543,16 @@ export function App() {
                             onDeleteUser={handleDeleteUser}
                             onResetData={handleResetData}
                             onReloadData={loadData}
+                        />
+                    }
+                />
+
+                <Route
+                    path="/reminders"
+                    element={
+                        <RentReminderCenterView
+                            propertyId={selectedPropertyId}
+                            onNavigate={handleNavigate}
                         />
                     }
                 />
