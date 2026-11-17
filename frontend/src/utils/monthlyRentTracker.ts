@@ -14,7 +14,7 @@ export interface MonthTenantPaymentStatus {
   tenantName: string;
   roomNumber: string;
   monthlyRent: number;
-  status: 'paid' | 'pending' | 'overdue';
+  status: 'paid' | 'partially_paid' | 'pending' | 'overdue';
   paidOn?: string;
   paymentMode?: string;
   receiptNumber?: string;
@@ -56,7 +56,7 @@ export const MONTH_ABBRS = [
 /**
  * Parses a month-year string like "October 2026", "Oct 2026", "2026-10" into structured components.
  */
-export function parseMonthYear(str?: string): { year: number; monthIndex: number; monthName: string; key: string } | null {
+export function parseMonthYear(str?: string): MonthOption | null {
   if (!str) return null;
   const cleaned = str.replace(/[^a-zA-Z0-9\s]/g, ' ').trim();
   const parts = cleaned.split(/\s+/).filter(Boolean);
@@ -80,7 +80,12 @@ export function parseMonthYear(str?: string): { year: number; monthIndex: number
 
   if (mIdx !== -1 && yr !== -1) {
     const monthName = MONTH_NAMES[mIdx - 1];
-    return { year: yr, monthIndex: mIdx, monthName, key: `${monthName} ${yr}` };
+    return {
+      key: `${monthName} ${yr}`,
+      label: `${monthName} ${yr}`,
+      year: yr,
+      monthIndex: mIdx,
+    };
   }
   return null;
 }
@@ -282,22 +287,17 @@ export function getMonthlyRentSummary(
       }
     }
 
-    // 3. Current month default fallback: check tenant paymentStatus
-    const isPaid = tenant.paymentStatus === 'verified';
-    const parsedRoom = parseInt(tenant.roomNumber.replace(/\D/g, '') || '1', 10);
-    const mode = parsedRoom % 3 === 0 ? 'Cash' : 'UPI';
-    const monthAbbr = MONTH_NAMES[monthIndex - 1]?.slice(0, 3) || 'Jan';
-    const dynamicPaidDate = `05 ${monthAbbr} ${year}`;
-
+    // 3. Uninvoiced/Pending month: tenant has active room allocation but rent invoice is pending
     return {
       tenantId: tenant.id,
       tenantName: tenant.name,
       roomNumber: tenant.roomNumber,
       monthlyRent: tenant.monthlyRent,
-      status: isPaid ? 'paid' : 'pending',
-      paidOn: isPaid ? dynamicPaidDate : undefined,
-      paymentMode: isPaid ? mode : undefined,
-      receiptNumber: isPaid ? `REC-${year}-${String(monthIndex).padStart(2, '0')}-${tenant.roomNumber}` : undefined,
+      status: 'pending',
+      paidOn: undefined,
+      paymentMode: undefined,
+      receiptNumber: undefined,
+      invoiceId: undefined,
       joinedDate: tenant.joinedDate,
     };
   });

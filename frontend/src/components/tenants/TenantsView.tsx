@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
     Search,
     CheckCircle2,
@@ -17,13 +18,17 @@ import {
     ShieldCheck,
     Trash2,
     Edit2,
+    Building2,
+    Layers,
+    BedDouble,
 } from 'lucide-react';
-import { Tenant, PageId, WhatsAppPackage } from '../../types';
+import { Tenant, PageId, WhatsAppPackage, Room } from '../../types';
 import { formatAadharDisplay, cleanAadharForDB } from '../../utils/formatters';
 import { WhatsAppQuickShareModal } from '../common/WhatsAppQuickShareModal';
 
 interface TenantsViewProps {
     tenants: Tenant[];
+    rooms?: Room[];
     onAddTenant: (tenant: Omit<Tenant, 'id'>) => void;
     onUpdateTenant?: (uid: string, tenant: Partial<Tenant>) => Promise<Tenant>;
     onDeleteTenant?: (uid: string) => Promise<void>;
@@ -32,21 +37,40 @@ interface TenantsViewProps {
     onViewPaymentHistory?: (tenant: Tenant) => void;
 }
 
+const formatFloorName = (floorVal?: string | number): string => {
+    if (!floorVal && floorVal !== 0) return 'Floor 1';
+    const s = String(floorVal).trim();
+    if (s === '0' || s.toLowerCase() === 'g') return 'Ground Floor';
+    return s.toLowerCase().includes('floor') ? s : `Floor ${s}`;
+};
+
 export const TenantsView: React.FC<TenantsViewProps> = ({
     tenants,
+    rooms = [],
     onUpdateTenant,
     onDeleteTenant,
     onVerifyAdvance,
     onNavigate,
     onViewPaymentHistory,
 }) => {
-    const [searchQuery, setSearchQuery] = useState('');
+    const [searchParams] = useSearchParams();
+    const urlSearch = searchParams.get('search') || '';
+    const [searchQuery, setSearchQuery] = useState(urlSearch);
+
+    useEffect(() => {
+        const q = searchParams.get('search');
+        if (q !== null && q !== searchQuery) {
+            setSearchQuery(q);
+        }
+    }, [searchParams]);
+
     const [statusFilter, setStatusFilter] = useState('all');
-    const [selectedTenantId, setSelectedTenantId] = useState<string>(tenants[0]?.id || 'ten-1');
+    const [floorFilter, setFloorFilter] = useState<string>('all');
+    const [selectedTenantId, setSelectedTenantId] = useState<string>(tenants[0]?.id || '');
 
     // Advance verification modal state
     const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
-    const [verifyAmount, setVerifyAmount] = useState<number>(8000);
+    const [verifyAmount, setVerifyAmount] = useState<number>(0);
     const [verifyPaymentMode, setVerifyPaymentMode] = useState<string>('UPI');
     const [verifyReference, setVerifyReference] = useState<string>('');
     const [isVerifying, setIsVerifying] = useState<boolean>(false);
@@ -58,7 +82,7 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
     const [editRoom, setEditRoom] = useState('');
     const [editCategory, setEditCategory] = useState<'working' | 'student'>('working');
     const [editProfession, setEditProfession] = useState('');
-    const [editRent, setEditRent] = useState<number>(8000);
+    const [editRent, setEditRent] = useState<number>(0);
     const [editAadhar, setEditAadhar] = useState('');
     const [showAadharEdit, setShowAadharEdit] = useState(false);
     const [isUpdatingTenant, setIsUpdatingTenant] = useState(false);
@@ -72,7 +96,7 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
         const effectivePhone = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
         const receiptNo = 'REC-ADV-' + Math.floor(10000 + Math.random() * 90000);
         const baseUrl = window.location.origin;
-        const vacateFormUrl = `${baseUrl}/vacate-form.html?tid=${encodeURIComponent(t.id)}&room=${encodeURIComponent(t.roomNumber)}&name=${encodeURIComponent(t.name)}&mobile=${encodeURIComponent(t.phone)}&aadhaar=${encodeURIComponent(cleanAadharForDB(t.aadharNumber || ''))}&advance=${t.monthlyRent}`;
+        const vacateFormUrl = `${baseUrl}/vacate-form.html?tid=${encodeURIComponent(t.id)}&room=${encodeURIComponent(t.roomNumber)}&name=${encodeURIComponent(t.name)}&mobile=${encodeURIComponent(t.phone)}&aadhaar=${encodeURIComponent(cleanAadharForDB(t.aadharNumber || ''))}&advance=${t.monthlyRent}&propertyId=${encodeURIComponent(String(t.propertyId || 1))}`;
         const payRentUrl = `${baseUrl}/?page=rent-and-billing&tid=${encodeURIComponent(t.id)}`;
         const upiPayLink = `upi://pay?pa=rmsmanager@okhdfcbank&pn=RMS&am=${t.monthlyRent}`;
 
@@ -175,6 +199,25 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
         }
     };
 
+    const roomsMap = React.useMemo(() => {
+        const map: Record<string, Room> = {};
+        (rooms || []).forEach(r => {
+            map[r.roomNumber] = r;
+        });
+        return map;
+    }, [rooms]);
+
+    const availableFloors = React.useMemo(() => {
+        const floorSet = new Set<string>();
+        (rooms || []).forEach(r => {
+            if (r.floor !== undefined && r.floor !== null) floorSet.add(String(r.floor));
+        });
+        if (floorSet.size === 0) {
+            ['1', '2', '3', '4'].forEach(f => floorSet.add(f));
+        }
+        return Array.from(floorSet).sort();
+    }, [rooms]);
+
     const filteredTenants = tenants.filter(t => {
         const matchesSearch =
             t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -184,15 +227,20 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
             (t.profession && t.profession.toLowerCase().includes(searchQuery.toLowerCase()));
 
         const matchesStatus = statusFilter === 'all' || t.status === statusFilter;
-        return matchesSearch && matchesStatus;
+
+        const tenantRoom = roomsMap[t.roomNumber];
+        const tenantFloor = tenantRoom?.floor ? String(tenantRoom.floor) : t.roomNumber.charAt(0);
+        const matchesFloor = floorFilter === 'all' || tenantFloor === floorFilter;
+
+        return matchesSearch && matchesStatus && matchesFloor;
     });
 
     return (
         <div className="flex flex-col w-full gap-6">
 
             {/* Search and Filters */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="relative min-w-[260px] flex-1 max-w-md">
+            <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="relative min-w-[240px] flex-1 max-w-sm">
                     <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                     <input
                         type="text"
@@ -209,6 +257,39 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                             <X className="w-3.5 h-3.5" />
                         </button>
                     )}
+                </div>
+
+                {/* Floor Filter Bar */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
+                    <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 shrink-0">
+                        <Layers className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Floor:</span>
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setFloorFilter('all')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
+                            floorFilter === 'all'
+                                ? 'bg-blue-600 text-white shadow-2xs'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                    >
+                        All Floors
+                    </button>
+                    {availableFloors.map(fl => (
+                        <button
+                            key={fl}
+                            type="button"
+                            onClick={() => setFloorFilter(fl)}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
+                                floorFilter === fl
+                                    ? 'bg-blue-600 text-white shadow-2xs'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                        >
+                            Floor {fl}
+                        </button>
+                    ))}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -237,7 +318,7 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                                 <tr className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider font-semibold border-b border-slate-200/80">
                                     <th className="py-3 px-4">Resident</th>
                                     <th className="py-3 px-4">Hometown</th>
-                                    <th className="py-3 px-4">Room</th>
+                                    <th className="py-3 px-4">Room &amp; Floor</th>
                                     <th className="py-3 px-4 font-mono text-right">Rent</th>
                                     <th className="py-3 px-4">Status</th>
                                     <th className="py-3 px-4 text-right">Contact</th>
@@ -280,29 +361,42 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                                                         </span>
                                                         <ArrowUpRight className="w-3.5 h-3.5 opacity-60 group-hover/name:opacity-100 text-blue-600 transition-opacity shrink-0" />
                                                     </button>
-                                                    <div className="text-[11px] text-slate-500">{t.profession || 'Professional'}</div>
+                                                    <div className="text-[11px] text-slate-500">{t.profession || '—'}</div>
                                                     <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1 mt-0.5">
                                                         <ShieldCheck className="w-3 h-3 text-blue-500" />
-                                                        <span>{formatAadharDisplay(t.aadharNumber) || '5489 2104 9382'}</span>
+                                                        <span>{formatAadharDisplay(t.aadharNumber) || '—'}</span>
                                                     </div>
                                                 </td>
                                                 <td className="py-3.5 px-4">
                                                     <span className="inline-flex items-center gap-1 font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
                                                         <MapPin className="w-3 h-3 text-slate-400" />
-                                                        {t.hometown || 'Bangalore'}
+                                                        {t.hometown || '—'}
                                                     </span>
                                                 </td>
                                                 <td className="py-3.5 px-4">
-                                                    <span className="font-bold text-slate-800">Room {t.roomNumber}</span>
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span className="font-bold text-slate-800">Room {t.roomNumber}</span>
+                                                        <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-medium">
+                                                            <Layers className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                                                            <span>{formatFloorName(roomsMap[t.roomNumber]?.floor || t.roomNumber.charAt(0))}</span>
+                                                        </span>
+                                                    </div>
                                                 </td>
                                                 <td className="py-3.5 px-4 font-mono font-bold text-slate-900 text-right">
                                                     ₹{t.monthlyRent.toLocaleString('en-IN')}/mo
                                                 </td>
                                                 <td className="py-3.5 px-4">
-                                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                                                        Auto-Verified
-                                                    </span>
+                                                    {t.paymentStatus === 'verified' ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                                                            Advance Paid
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200/80">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                                                            Advance Pending
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="py-3.5 px-4 text-right">
                                                     <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
@@ -348,7 +442,7 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
 
                     <div className="p-3 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
                         <span>Showing {filteredTenants.length} residents</span>
-                        <span className="font-mono text-slate-400">Greenwood RMS</span>
+                        <span className="font-mono text-slate-400">RMS</span>
                     </div>
                 </div>
 
@@ -384,16 +478,44 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                             </span>
                         </div>
 
-                        {/* Room & Rent Details */}
-                        <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200/70 flex flex-col gap-2 text-xs">
+                        {/* Room, Floor & Rent Details */}
+                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/70 flex flex-col gap-2.5 text-xs">
                             <div className="flex items-center justify-between font-bold text-slate-900">
                                 <span className="flex items-center gap-1.5">
-                                    <DoorOpen className="w-4 h-4 text-slate-500" />
-                                    <span>Room {selectedTenant.roomNumber}</span>
+                                    <Building2 className="w-4 h-4 text-blue-600" />
+                                    <span>Residence Location</span>
                                 </span>
-                                <span className="text-emerald-700 font-semibold">Resident</span>
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold uppercase">
+                                    Resident
+                                </span>
                             </div>
-                            <div className="flex items-center justify-between text-slate-600 pt-1 border-t border-slate-200/60">
+
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-white p-2 rounded-lg border border-slate-200/80">
+                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Block</span>
+                                    <span className="font-bold text-slate-800 font-mono text-[11px]">Main Block</span>
+                                </div>
+                                <div className="bg-white p-2 rounded-lg border border-slate-200/80">
+                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Floor</span>
+                                    <span className="font-bold text-slate-800 font-mono text-[11px]">
+                                        {formatFloorName(roomsMap[selectedTenant.roomNumber]?.floor || selectedTenant.roomNumber.charAt(0))}
+                                    </span>
+                                </div>
+                                <div className="bg-white p-2 rounded-lg border border-slate-200/80">
+                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Room</span>
+                                    <span className="font-bold text-blue-700 font-mono text-[11px]">
+                                        Room {selectedTenant.roomNumber}
+                                    </span>
+                                </div>
+                                <div className="bg-white p-2 rounded-lg border border-slate-200/80">
+                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">Bed Unit</span>
+                                    <span className="font-bold text-emerald-700 font-mono text-[11px]">
+                                        Bed 1 (Assigned)
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between text-slate-600 pt-1.5 border-t border-slate-200/60">
                                 <span>Monthly Tariff:</span>
                                 <span className="font-mono font-bold text-slate-900">
                                     ₹{selectedTenant.monthlyRent.toLocaleString('en-IN')}/mo
@@ -408,15 +530,15 @@ export const TenantsView: React.FC<TenantsViewProps> = ({
                             </span>
                             <div className="flex items-center gap-2 text-slate-700">
                                 <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                <span>Hometown: <strong>{selectedTenant.hometown || 'Bangalore'}</strong></span>
+                                <span>Hometown: <strong>{selectedTenant.hometown || '—'}</strong></span>
                             </div>
                             <div className="flex items-center gap-2 text-slate-700">
                                 <Briefcase className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                <span>Profession: <strong>{selectedTenant.profession || 'Working Professional'}</strong></span>
+                                <span>Profession: <strong>{selectedTenant.profession || '—'}</strong></span>
                             </div>
                             <div className="flex items-center gap-2 text-slate-700">
                                 <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                                <span>Aadhar: <strong className="font-mono">{formatAadharDisplay(selectedTenant.aadharNumber) || '5489 2104 9382'}</strong></span>
+                                <span>Aadhar: <strong className="font-mono">{formatAadharDisplay(selectedTenant.aadharNumber) || '—'}</strong></span>
                             </div>
                         </div>
 

@@ -16,8 +16,11 @@ import {
     History,
     AlertCircle,
     MessageCircle,
+    Building2,
+    Layers,
+    BedDouble,
 } from 'lucide-react';
-import { Admission, Room, PageId, WhatsAppPackage } from '../../types';
+import { Admission, Room, PageId, WhatsAppPackage, Bed } from '../../types';
 import { formatAadharDisplay, cleanAadharForDB } from '../../utils/formatters';
 import { apiService } from '../../services/apiService';
 import { WhatsAppQuickShareModal } from '../common/WhatsAppQuickShareModal';
@@ -41,6 +44,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
     onCancelAdmission,
     onNavigate,
 }) => {
+
     // Available rooms and rooms with active vacate notices
     const availableRooms = rooms.filter(r => r.occupied < r.capacity);
     const vacateNoticeRooms = rooms.filter(r => r.status === 'vacate_notice');
@@ -84,6 +88,42 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
     const [isCheckingResident, setIsCheckingResident] = useState<boolean>(false);
     const [whatsAppPkg, setWhatsAppPkg] = useState<WhatsAppPackage | null>(null);
     const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState<boolean>(false);
+    const [enrolmentFloorFilter, setEnrolmentFloorFilter] = useState<string>('all');
+    const [selectedBedId, setSelectedBedId] = useState<number | null>(null);
+    const [roomBeds, setRoomBeds] = useState<Bed[]>([]);
+    const [isLoadingBeds, setIsLoadingBeds] = useState<boolean>(false);
+
+    // Fetch physical beds when selected room changes
+    React.useEffect(() => {
+        if (!selectedRoomNumber) {
+            setRoomBeds([]);
+            setSelectedBedId(null);
+            return;
+        }
+        let isMounted = true;
+        setIsLoadingBeds(true);
+        apiService.getRoomBeds(selectedRoomNumber)
+            .then(beds => {
+                if (!isMounted) return;
+                setRoomBeds(beds);
+                const firstAvailable = beds.find(b => b.status === 'AVAILABLE');
+                if (firstAvailable) {
+                    setSelectedBedId(firstAvailable.id);
+                } else if (beds.length > 0) {
+                    setSelectedBedId(beds[0].id);
+                }
+            })
+            .catch(err => {
+                console.warn('Failed to fetch beds for room:', err);
+                if (isMounted) setRoomBeds([]);
+            })
+            .finally(() => {
+                if (isMounted) setIsLoadingBeds(false);
+            });
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedRoomNumber]);
 
     const formatDateDMY = (dateStr?: string | null): string => {
         if (!dateStr) return 'N/A';
@@ -121,6 +161,20 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
             return a.localeCompare(b, undefined, { numeric: true });
         });
     }, [rooms]);
+
+    const availableFloors = useMemo(() => {
+        const set = new Set<string>();
+        rooms.forEach(r => {
+            if (r.floor !== undefined && r.floor !== null) set.add(String(r.floor));
+        });
+        if (set.size === 0) ['1', '2', '3', '4'].forEach(f => set.add(f));
+        return Array.from(set).sort();
+    }, [rooms]);
+
+    const displayedAvailableRooms = useMemo(() => {
+        if (enrolmentFloorFilter === 'all') return availableRooms;
+        return availableRooms.filter(r => String(r.floor) === enrolmentFloorFilter);
+    }, [availableRooms, enrolmentFloorFilter]);
 
     // Aggregate statistics
     const totalCapacity = useMemo(() => rooms.reduce((acc, r) => acc + (r.capacity || 0), 0), [rooms]);
@@ -186,17 +240,16 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
         try {
             await onCreateAdmission({
                 residentName: residentName.trim(),
-                phone: phone.trim() || '+91 98000 00000',
-                email:
-                    email.trim() ||
-                    `${residentName.toLowerCase().replace(/\s+/g, '')}@example.com`,
-                aadharNumber: aadharNumber || '548921049382',
+                phone: phone.trim(),
+                email: email.trim() || undefined,
+                aadharNumber: aadharNumber.trim() || undefined,
                 parentContact: parentNumber.trim() || undefined,
                 parentNumber: parentNumber.trim() || undefined,
-                hometown: hometown.trim() || 'Bangalore',
-                profession: profession.trim() || 'Professional',
+                hometown: hometown.trim() || undefined,
+                profession: profession.trim() || undefined,
                 category,
                 roomNumber: selectedRoomNumber,
+                bedId: selectedBedId ?? undefined,
                 monthlyRent,
                 moveInDate,
                 status: 'confirmed',
@@ -426,11 +479,10 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                     value={phone}
                                     onChange={handlePhoneChange}
                                     placeholder="e.g. +91 98450 12891"
-                                    className={`h-9 px-3 border rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none transition-all ${
-                                        highlightFields
-                                            ? 'bg-amber-50/50 border-amber-400 ring-2 ring-amber-300'
-                                            : 'bg-slate-50 border-slate-200 focus:ring-1 focus:ring-blue-500'
-                                    }`}
+                                    className={`h-9 px-3 border rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none transition-all ${highlightFields
+                                        ? 'bg-amber-50/50 border-amber-400 ring-2 ring-amber-300'
+                                        : 'bg-slate-50 border-slate-200 focus:ring-1 focus:ring-blue-500'
+                                        }`}
                                 />
                             </div>
                         </div>
@@ -460,11 +512,10 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                         }}
                                         placeholder="xxxx xxxx xxxx"
                                         maxLength={14}
-                                        className={`h-9 w-full px-3 font-mono font-semibold tracking-wider border rounded-lg text-xs text-slate-900 placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 focus:bg-white focus:outline-none transition-all ${
-                                            highlightFields
-                                                ? 'bg-amber-50/50 border-amber-400 ring-2 ring-amber-300'
-                                                : 'bg-slate-50 border-slate-200 focus:ring-1 focus:ring-blue-500'
-                                        }`}
+                                        className={`h-9 w-full px-3 font-mono font-semibold tracking-wider border rounded-lg text-xs text-slate-900 placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 focus:bg-white focus:outline-none transition-all ${highlightFields
+                                            ? 'bg-amber-50/50 border-amber-400 ring-2 ring-amber-300'
+                                            : 'bg-slate-50 border-slate-200 focus:ring-1 focus:ring-blue-500'
+                                            }`}
                                     />
                                     {aadharNumber.length === 12 && (
                                         <span className="absolute right-2.5 top-2 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
@@ -576,17 +627,44 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                             </div>
                         </div>
 
-                        {/* Room Selection Dropdown (Simplified: Floor / Room (x/y Available)) */}
-                        <div className="flex flex-col gap-1.5 pt-2">
-                            <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                                <span className="flex items-center gap-1.5">
+                        {/* Room Selection Dropdown with Floor Filter and Physical Bed Selector */}
+                        <div className="flex flex-col gap-2 pt-2">
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                                     <DoorOpen className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Select Room *</span>
-                                </span>
-                                <span className="text-[11px] font-normal text-slate-500 font-mono">
-                                    Floor / Room (Available in bracket)
-                                </span>
-                            </label>
+                                    <span>Select Room &amp; Bed *</span>
+                                </label>
+                                <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                                        <Layers className="w-3 h-3 text-slate-500" /> Floor:
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEnrolmentFloorFilter('all')}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                                            enrolmentFloorFilter === 'all'
+                                                ? 'bg-blue-600 text-white shadow-2xs'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        }`}
+                                    >
+                                        All
+                                    </button>
+                                    {availableFloors.map(fl => (
+                                        <button
+                                            key={fl}
+                                            type="button"
+                                            onClick={() => setEnrolmentFloorFilter(fl)}
+                                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                                                enrolmentFloorFilter === fl
+                                                    ? 'bg-blue-600 text-white shadow-2xs'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                            }`}
+                                        >
+                                            Fl {fl}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
 
                             <select
                                 value={selectedRoomNumber}
@@ -594,11 +672,11 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                 className="h-10 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 font-mono font-medium focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                             >
                                 <optgroup label="── Available Rooms ──">
-                                    {availableRooms.map(room => {
+                                    {displayedAvailableRooms.map(room => {
                                         const vacant = room.capacity - room.occupied;
                                         return (
                                             <option key={room.roomNumber} value={room.roomNumber}>
-                                                Floor {room.floor} / Room {room.roomNumber} ({vacant}/{room.capacity} Available)
+                                                Main Block • Floor {room.floor} / Room {room.roomNumber} ({vacant}/{room.capacity} Available)
                                             </option>
                                         );
                                     })}
@@ -608,12 +686,57 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                     <optgroup label="── Vacate Notice Allocated ──">
                                         {vacateNoticeRooms.map(room => (
                                             <option key={room.roomNumber} value={room.roomNumber}>
-                                                Floor {room.floor} / Room {room.roomNumber} (Vacating {room.vacateDate})
+                                                Main Block • Floor {room.floor} / Room {room.roomNumber} (Vacating {room.vacateDate})
                                             </option>
                                         ))}
                                     </optgroup>
                                 )}
                             </select>
+
+                            {/* Physical Bed Units Selector */}
+                            {roomBeds.length > 0 && (
+                                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 flex flex-col gap-1.5 mt-1">
+                                    <div className="flex items-center justify-between text-[11px]">
+                                        <span className="font-semibold text-slate-700 flex items-center gap-1">
+                                            <BedDouble className="w-3.5 h-3.5 text-blue-600" />
+                                            <span>Physical Bed Assignment (Room {selectedRoomNumber}):</span>
+                                        </span>
+                                        <span className="text-[10px] text-slate-400">Click to assign specific bed</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {roomBeds.map(bed => {
+                                            const isAvail = bed.status === 'AVAILABLE';
+                                            const isSelected = selectedBedId === bed.id;
+                                            return (
+                                                <button
+                                                    key={bed.id}
+                                                    type="button"
+                                                    disabled={!isAvail}
+                                                    onClick={() => setSelectedBedId(bed.id)}
+                                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                                        isSelected
+                                                            ? 'bg-blue-600 text-white ring-2 ring-blue-400/40 shadow-xs'
+                                                            : isAvail
+                                                            ? 'bg-white text-slate-800 border border-emerald-300 hover:border-blue-400'
+                                                            : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                                                    }`}
+                                                >
+                                                    <span>Bed {bed.bedNumber}</span>
+                                                    <span className={`text-[9px] uppercase px-1 py-0.2 rounded font-mono ${
+                                                        isSelected
+                                                            ? 'bg-blue-700 text-white'
+                                                            : isAvail
+                                                            ? 'bg-emerald-50 text-emerald-700'
+                                                            : 'bg-slate-200 text-slate-600'
+                                                    }`}>
+                                                        {bed.status}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Rent & Auto-Verify Banner */}
@@ -794,7 +917,7 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                 <th className="py-2.5 px-3 font-mono">Aadhar Number</th>
                                 <th className="py-2.5 px-3">Hometown</th>
                                 <th className="py-2.5 px-3">Category</th>
-                                <th className="py-2.5 px-3">Room Assigned</th>
+                                <th className="py-2.5 px-3">Room &amp; Floor</th>
                                 <th className="py-2.5 px-3 font-mono text-right">Rent</th>
                                 <th className="py-2.5 px-3">Move-In Date</th>
                                 <th className="py-2.5 px-3">Payment Status</th>
@@ -802,95 +925,109 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs">
-                            {admissions.map(adm => (
-                                <tr key={adm.id} className="hover:bg-slate-50/70 transition-colors">
-                                    <td className="py-3 px-3">
-                                        <div className="font-semibold text-slate-900">{adm.residentName}</div>
-                                        <div className="font-mono text-[10px] text-slate-400">{adm.phone}</div>
-                                    </td>
-                                    <td className="py-3 px-3">
-                                        <span className="inline-block font-mono text-xs font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/70">
-                                            {formatAadharDisplay(adm.aadharNumber) || '5489 2104 9382'}
-                                        </span>
-                                        <span className="block text-[9px] font-mono text-slate-400 mt-0.5">
-                                            DB: {adm.aadharNumber || '548921049382'}
-                                        </span>
-                                    </td>
-                                    <td className="py-3 px-3">
-                                        <span className="inline-flex items-center gap-1 font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
-                                            <MapPin className="w-3 h-3 text-slate-400" />
-                                            {adm.hometown || 'Bangalore'}
-                                        </span>
-                                    </td>
-                                    <td className="py-3 px-3">
-                                        <span className="text-[11px] text-slate-600 font-medium">
-                                            {adm.category === 'other' ? 'Student / Other' : 'Working'}
-                                        </span>
-                                    </td>
-                                    <td className="py-3 px-3 font-bold text-slate-800">
-                                        Room {adm.roomNumber}
-                                    </td>
-                                    <td className="py-3 px-3 font-mono font-bold text-slate-900 text-right">
-                                        ₹{adm.monthlyRent.toLocaleString('en-IN')}/mo
-                                    </td>
-                                    <td className="py-3 px-3 font-mono text-slate-600">
-                                        {adm.moveInDate}
-                                    </td>
-                                    <td className="py-3 px-3">
-                                        {adm.status === 'confirmed' ? (
-                                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                                <span>PAID (Active)</span>
-                                            </span>
-                                        ) : adm.status === 'vacated' || adm.tenantStatus?.toUpperCase() === 'INACTIVE' ? (
-                                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200/80">
-                                                <span>VACATED</span>
-                                            </span>
-                                        ) : adm.status === 'cancelled' ? (
-                                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-                                                <span>CANCELLED</span>
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                                                <span>PENDING</span>
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="py-3 px-3 text-right">
-                                        {adm.status === 'pending' && (!adm.tenantStatus || adm.tenantStatus.toUpperCase() !== 'INACTIVE') ? (
-                                            <div className="inline-flex items-center gap-1.5 justify-end">
-                                                {onConfirmAdmission && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => openVerifyModal(adm)}
-                                                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold transition-colors flex items-center gap-1 shadow-2xs"
-                                                        title="Verify advance payment and activate tenant"
-                                                    >
-                                                        <ShieldCheck className="w-3 h-3" />
-                                                        <span>Verify</span>
-                                                    </button>
-                                                )}
-                                                {onCancelAdmission && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if (window.confirm(`Cancel pending admission for ${adm.residentName}?`)) {
-                                                                onCancelAdmission(adm.id);
-                                                            }
-                                                        }}
-                                                        className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded text-[11px] font-semibold transition-colors"
-                                                        title="Cancel Pending Admission"
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <span className="text-[11px] text-slate-400">—</span>
-                                        )}
+                            {admissions.length === 0 ? (
+                                <tr>
+                                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                                        No admission records found.
                                     </td>
                                 </tr>
-                            ))}
+                            ) : (
+                                admissions.map(adm => (
+                                    <tr key={adm.id} className="hover:bg-slate-50/70 transition-colors">
+                                        <td className="py-3 px-3">
+                                            <div className="font-semibold text-slate-900">{adm.residentName}</div>
+                                            <div className="font-mono text-[10px] text-slate-400">{adm.phone}</div>
+                                        </td>
+                                        <td className="py-3 px-3">
+                                            <span className="inline-block font-mono text-xs font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/70">
+                                                {formatAadharDisplay(adm.aadharNumber) || '—'}
+                                            </span>
+                                            <span className="block text-[9px] font-mono text-slate-400 mt-0.5">
+                                                DB: {adm.aadharNumber || '—'}
+                                            </span>
+                                        </td>
+                                        <td className="py-3 px-3">
+                                            <span className="inline-flex items-center gap-1 font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                                                <MapPin className="w-3 h-3 text-slate-400" />
+                                                {adm.hometown || '—'}
+                                            </span>
+                                        </td>
+                                        <td className="py-3 px-3">
+                                            <span className="text-[11px] text-slate-600 font-medium">
+                                                {adm.category === 'other' ? 'Student / Other' : 'Working'}
+                                            </span>
+                                        </td>
+                                        <td className="py-3 px-3">
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="font-bold text-slate-800">Room {adm.roomNumber}</span>
+                                                <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-medium">
+                                                    <Layers className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                                                    <span>Floor {adm.roomNumber.charAt(0)} • Main Block</span>
+                                                </span>
+                                            </div>
+                                        </td>
+                                        <td className="py-3 px-3 font-mono font-bold text-slate-900 text-right">
+                                            ₹{adm.monthlyRent.toLocaleString('en-IN')}/mo
+                                        </td>
+                                        <td className="py-3 px-3 font-mono text-slate-600">
+                                            {adm.moveInDate}
+                                        </td>
+                                        <td className="py-3 px-3">
+                                            {adm.status === 'confirmed' ? (
+                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                                    <span>PAID (Active)</span>
+                                                </span>
+                                            ) : adm.status === 'vacated' || adm.tenantStatus?.toUpperCase() === 'INACTIVE' ? (
+                                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200/80">
+                                                    <span>VACATED</span>
+                                                </span>
+                                            ) : adm.status === 'cancelled' ? (
+                                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                                                    <span>CANCELLED</span>
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                                    <span>PENDING</span>
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="py-3 px-3 text-right">
+                                            {adm.status === 'pending' && (!adm.tenantStatus || adm.tenantStatus.toUpperCase() !== 'INACTIVE') ? (
+                                                <div className="inline-flex items-center gap-1.5 justify-end">
+                                                    {onConfirmAdmission && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openVerifyModal(adm)}
+                                                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold transition-colors flex items-center gap-1 shadow-2xs"
+                                                            title="Verify advance payment and activate tenant"
+                                                        >
+                                                            <ShieldCheck className="w-3 h-3" />
+                                                            <span>Verify</span>
+                                                        </button>
+                                                    )}
+                                                    {onCancelAdmission && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (window.confirm(`Cancel pending admission for ${adm.residentName}?`)) {
+                                                                    onCancelAdmission(adm.id);
+                                                                }
+                                                            }}
+                                                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded text-[11px] font-semibold transition-colors"
+                                                            title="Cancel Pending Admission"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <span className="text-[11px] text-slate-400">—</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
                 </div>
@@ -966,11 +1103,10 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                             key={mode}
                                             type="button"
                                             onClick={() => setVerifyPaymentMode(mode)}
-                                            className={`py-2 px-1 text-center rounded-lg text-xs font-semibold border transition-all ${
-                                                verifyPaymentMode === mode
-                                                    ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-xs'
-                                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                            }`}
+                                            className={`py-2 px-1 text-center rounded-lg text-xs font-semibold border transition-all ${verifyPaymentMode === mode
+                                                ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-xs'
+                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                                }`}
                                         >
                                             {mode}
                                         </button>
@@ -1085,11 +1221,10 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                                         ({floorRooms.length} {floorRooms.length === 1 ? 'room' : 'rooms'})
                                                     </span>
                                                 </div>
-                                                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                                                    floorAvailable > 0
-                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                        : 'bg-slate-100 text-slate-600'
-                                                }`}>
+                                                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${floorAvailable > 0
+                                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                    : 'bg-slate-100 text-slate-600'
+                                                    }`}>
                                                     {floorAvailable} beds available
                                                 </span>
                                             </div>
@@ -1109,11 +1244,10 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                                     return (
                                                         <div
                                                             key={room.id || room.roomNumber}
-                                                            className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between gap-3 ${
-                                                                isSelected
-                                                                    ? 'border-blue-500 bg-blue-50/40 ring-2 ring-blue-500/20'
-                                                                    : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
-                                                            }`}
+                                                            className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between gap-3 ${isSelected
+                                                                ? 'border-blue-500 bg-blue-50/40 ring-2 ring-blue-500/20'
+                                                                : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
+                                                                }`}
                                                         >
                                                             {/* Card Top */}
                                                             <div>
@@ -1127,19 +1261,18 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                                                         </span>
                                                                     </div>
                                                                     <span
-                                                                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                                                                            hasNotice
-                                                                                ? 'bg-amber-100 text-amber-800'
-                                                                                : isFull
+                                                                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${hasNotice
+                                                                            ? 'bg-amber-100 text-amber-800'
+                                                                            : isFull
                                                                                 ? 'bg-rose-100 text-rose-800'
                                                                                 : 'bg-emerald-100 text-emerald-800'
-                                                                        }`}
+                                                                            }`}
                                                                     >
                                                                         {hasNotice
                                                                             ? 'Notice'
                                                                             : isFull
-                                                                            ? 'Full'
-                                                                            : 'Available'}
+                                                                                ? 'Full'
+                                                                                : 'Available'}
                                                                     </span>
                                                                 </div>
 
@@ -1153,13 +1286,12 @@ export const AdmissionsView: React.FC<AdmissionsViewProps> = ({
                                                                     </div>
                                                                     <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                                                         <div
-                                                                            className={`h-full rounded-full transition-all ${
-                                                                                isFull
-                                                                                    ? 'bg-rose-500'
-                                                                                    : hasNotice
+                                                                            className={`h-full rounded-full transition-all ${isFull
+                                                                                ? 'bg-rose-500'
+                                                                                : hasNotice
                                                                                     ? 'bg-amber-500'
                                                                                     : 'bg-emerald-500'
-                                                                            }`}
+                                                                                }`}
                                                                             style={{ width: `${occupancyPct}%` }}
                                                                         />
                                                                     </div>

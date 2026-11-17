@@ -3,6 +3,9 @@ import {
     Tenant,
     Admission,
     Room,
+    Block,
+    Floor,
+    Bed,
     Transaction,
     Invoice,
     Property,
@@ -16,13 +19,27 @@ import {
     PropertyPerformanceReport,
     MonthlyIntakeReport,
     DemographicsReport,
+    AnalyticsKpis,
+    RoomTypeYield,
+    RevenueTrend,
+    DefaulterAgingReport,
+    SecurityDepositReport,
+    TurnoverAnalytics,
+    TenantMonthlyPayItem,
+    Payment,
+    PaymentRequest,
+    RazorpayOrderResponse,
+    RazorpayVerifyRequest,
+    PublicInvoice,
+    RentReminderItem,
+    SendReminderRequest,
+    SendReminderResult,
+    ReminderStats,
+    ReminderLog,
+    ReminderSchedulerConfig,
+    ReminderSchedulerRunResult,
+    ReminderSchedulerRun,
 } from '../types';
-
-import {
-    INITIAL_CRITICAL_ACTIONS,
-    INITIAL_TRANSACTIONS,
-    INITIAL_INVOICES,
-} from '../data/mockData';
 
 export interface ApiConfig {
     baseUrl: string;
@@ -33,9 +50,6 @@ export interface ApiConfig {
 const STORAGE_KEYS = {
     CONFIG: 'rms_api_config',
     ACTIVE_PROPERTY: 'rms_active_property_id',
-    ACTIONS: 'rms_actions_v2',
-    TRANSACTIONS: 'rms_transactions_v2',
-    INVOICES: 'rms_invoices_v3',
 };
 
 function normalizeBaseUrl(url?: string): string {
@@ -218,6 +232,7 @@ class ApiService {
             parentContact: item.parentContact ?? '',
             parentNumber: item.parentContact ?? '',
             propertyId: item.propertyId,
+            bedId: item.bedId,
         };
     }
 
@@ -230,6 +245,8 @@ class ApiService {
             parentContact: item.parentContact ?? '',
             parentNumber: item.parentContact ?? '',
             roomNumber: item.roomNo,
+            bedId: item.bedId,
+            bedNumber: item.bedNumber,
             monthlyRent: item.roomRent ?? 0,
             moveInDate: item.enrollmentDate,
             hometown: item.hometown ?? '',
@@ -296,19 +313,11 @@ class ApiService {
     // =========================================================
 
     public async getCriticalActions(): Promise<CriticalAction[]> {
-        return this.getStorage(
-            STORAGE_KEYS.ACTIONS,
-            []
-        );
+        return [];
     }
 
-    public async dismissCriticalAction(id: string): Promise<void> {
-        const actions = await this.getCriticalActions();
-
-        this.setStorage(
-            STORAGE_KEYS.ACTIONS,
-            actions.filter(action => action.id !== id)
-        );
+    public async dismissCriticalAction(_id: string): Promise<void> {
+        // No-op for real backend integration
     }
 
     // =========================================================
@@ -352,7 +361,7 @@ class ApiService {
     ): Promise<Tenant> {
         const requestBody = {
             name: tenant.name,
-            aadhaarNo: tenant.aadharNumber || '123456789012',
+            aadhaarNo: tenant.aadharNumber || '',
             mobileNumber: tenant.phone,
             tenantType:
                 tenant.category === 'working'
@@ -392,10 +401,10 @@ class ApiService {
                 tenantData.category === 'working'
                     ? 'WORKING'
                     : 'STUDENT',
-            organizationName: tenantData.profession || 'Working',
+            organizationName: tenantData.profession || '',
             parentContact: tenantData.parentContact || tenantData.parentNumber || null,
             advancePaid: 0,
-            standardRent: tenantData.monthlyRent ?? 8000,
+            standardRent: tenantData.monthlyRent ?? 0,
             roomNo: tenantData.roomNumber,
             propertyId: tenantData.propertyId ?? this.activePropertyId ?? undefined,
         };
@@ -472,6 +481,7 @@ class ApiService {
             advancePaid: 0,
             standardRent: admissionData.monthlyRent,
             roomNo: admissionData.roomNumber,
+            bedId: admissionData.bedId ?? undefined,
             enrollmentDate: admissionData.moveInDate,
             remarks: null,
             propertyId: admissionData.propertyId ?? this.activePropertyId ?? undefined,
@@ -573,8 +583,10 @@ class ApiService {
             }
 
             return {
+                id: item.id,
                 roomNumber: item.roomNo,
                 floor: String(item.floor ?? 0),
+                floorId: item.floorId,
                 roomType: item.roomType ?? '',
                 rent: item.rentPerMonth ?? 0,
                 capacity: capacity,
@@ -617,8 +629,10 @@ class ApiService {
         }
 
         return {
+            id: item.id,
             roomNumber: item.roomNo,
             floor: String(item.floor ?? 0),
+            floorId: item.floorId,
             roomType: item.roomType ?? '',
             rent: item.rentPerMonth ?? 0,
             capacity: capacity,
@@ -640,6 +654,8 @@ class ApiService {
         occupancy: number;
         available: boolean;
         propertyId?: number;
+        blockId?: number;
+        floorId?: number;
     }): Promise<Room> {
         const payload = {
             ...roomData,
@@ -658,8 +674,10 @@ class ApiService {
         const item = await this.parseResponse<any>(response);
 
         return {
+            id: item.id,
             roomNumber: item.roomNo,
             floor: String(item.floor ?? 0),
+            floorId: item.floorId,
             rent: item.rentPerMonth ?? 0,
             capacity: item.occupancy ?? 0,
             occupied: item.currentOccupancy ?? 0,
@@ -735,23 +753,138 @@ class ApiService {
         await this.parseResponse<string>(response);
     }
 
-    public async allocateRoom(
-        roomNumber: string,
-        tenantName: string
-    ): Promise<Room> {
-        const currentRooms = await this.getRooms();
-        const room = currentRooms.find(item => item.roomNumber === roomNumber);
+    // =========================================================
+    // BLOCKS, FLOORS & BEDS (/api/properties/:id/blocks, /api/blocks/:id/floors, /api/rooms/:roomNo/beds, /api/beds/:id/status)
+    // =========================================================
 
-        if (!room) {
-            throw new Error(`Room ${roomNumber} not found`);
-        }
+    public async getBlocks(propertyId?: number): Promise<Block[]> {
+        const propId = propertyId ?? this.activePropertyId;
+        if (!propId) return [];
+        const response = await fetch(this.getUrl(`/properties/${propId}/blocks`), {
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<Block[]>(response);
+    }
 
-        return {
-            ...room,
-            occupied: room.occupied + 1,
-            residents: [...room.residents, tenantName],
-            status: room.occupied + 1 >= room.capacity ? 'full' : 'available',
-        };
+    public async createBlock(propertyId: number, data: { name: string; code: string }): Promise<Block> {
+        const response = await fetch(this.getUrl(`/properties/${propertyId}/blocks`), {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify(data),
+        });
+        return await this.parseResponse<Block>(response);
+    }
+
+    public async getFloors(blockId: number): Promise<Floor[]> {
+        const response = await fetch(this.getUrl(`/blocks/${blockId}/floors`), {
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<Floor[]>(response);
+    }
+
+    public async createFloor(blockId: number, data: { floorNumber: number; name?: string }): Promise<Floor> {
+        const response = await fetch(this.getUrl(`/blocks/${blockId}/floors`), {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify(data),
+        });
+        return await this.parseResponse<Floor>(response);
+    }
+
+    public async getRoomBeds(roomNo: string): Promise<Bed[]> {
+        const response = await fetch(
+            this.getUrl(`/rooms/${encodeURIComponent(roomNo)}/beds`),
+            { headers: this.getHeaders() }
+        );
+        return await this.parseResponse<Bed[]>(response);
+    }
+
+    public async updateBedStatus(
+        bedId: number,
+        status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'MAINTENANCE'
+    ): Promise<Bed> {
+        const response = await fetch(this.getUrl(`/beds/${bedId}/status`), {
+            method: 'PATCH',
+            headers: this.getHeaders(),
+            body: JSON.stringify({ status }),
+        });
+        return await this.parseResponse<Bed>(response);
+    }
+
+    public async initializePropertyHierarchy(propertyId?: number): Promise<any> {
+        const propId = propertyId ?? this.activePropertyId;
+        if (!propId) throw new Error('No active property ID');
+        const response = await fetch(this.getUrl(`/properties/${propId}/initialize-hierarchy`), {
+            method: 'POST',
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<any>(response);
+    }
+
+    public async getPropertyFloors(propertyId?: number): Promise<Floor[]> {
+        const propId = propertyId ?? this.activePropertyId;
+        if (!propId) return [];
+        const response = await fetch(this.getUrl(`/properties/${propId}/floors`), {
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<Floor[]>(response);
+    }
+
+    public async getPropertyHierarchy(propertyId?: number): Promise<any> {
+        const propId = propertyId ?? this.activePropertyId;
+        if (!propId) return null;
+        const response = await fetch(this.getUrl(`/properties/${propId}/hierarchy`), {
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<any>(response);
+    }
+
+    public async getBlock(blockId: number): Promise<Block> {
+        const response = await fetch(this.getUrl(`/blocks/${blockId}`), {
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<Block>(response);
+    }
+
+    public async updateBlock(blockId: number, data: Partial<Block>): Promise<Block> {
+        const response = await fetch(this.getUrl(`/blocks/${blockId}`), {
+            method: 'PUT',
+            headers: this.getHeaders(),
+            body: JSON.stringify(data),
+        });
+        return await this.parseResponse<Block>(response);
+    }
+
+    public async deleteBlock(blockId: number): Promise<void> {
+        const response = await fetch(this.getUrl(`/blocks/${blockId}`), {
+            method: 'DELETE',
+            headers: this.getHeaders(),
+        });
+        await this.parseResponse<any>(response);
+    }
+
+    public async getFloor(floorId: number): Promise<Floor> {
+        const response = await fetch(this.getUrl(`/floors/${floorId}`), {
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<Floor>(response);
+    }
+
+    public async updateFloor(floorId: number, data: Partial<Floor>): Promise<Floor> {
+        const response = await fetch(this.getUrl(`/floors/${floorId}`), {
+            method: 'PUT',
+            headers: this.getHeaders(),
+            body: JSON.stringify(data),
+        });
+        return await this.parseResponse<Floor>(response);
+    }
+
+    public async deleteFloor(floorId: number): Promise<void> {
+        const response = await fetch(this.getUrl(`/floors/${floorId}`), {
+            method: 'DELETE',
+            headers: this.getHeaders(),
+        });
+        await this.parseResponse<any>(response);
     }
 
     // =========================================================
@@ -779,6 +912,9 @@ class ApiService {
             paymentMode: item.paymentMode,
             runningBalance: item.runningBalance,
             propertyId: item.propertyId,
+            tenantUid: item.tenantUid,
+            invoiceId: item.invoiceId,
+            paymentId: item.paymentId,
         }));
     }
 
@@ -852,6 +988,24 @@ class ApiService {
         };
     }
 
+    public async getTenantMonthlyLedger(params?: {
+        tenantUid?: string;
+        search?: string;
+        monthYear?: string;
+        propertyId?: number;
+    }): Promise<TenantMonthlyPayItem[]> {
+        const propId = params?.propertyId ?? this.activePropertyId;
+        const query = new URLSearchParams();
+        if (propId) query.append('propertyId', String(propId));
+        if (params?.tenantUid) query.append('tenantUid', params.tenantUid);
+        if (params?.search) query.append('search', params.search);
+        if (params?.monthYear) query.append('monthYear', params.monthYear);
+
+        const url = this.getUrl('/invoices/tenant-monthly-ledger' + (query.toString() ? `?${query.toString()}` : ''));
+        const response = await fetch(url, { headers: this.getHeaders() });
+        return await this.parseResponse<TenantMonthlyPayItem[]>(response);
+    }
+
     public async generateCycleInvoices(monthYear: string, dueDate: string, propertyId?: number): Promise<any> {
         const propId = propertyId ?? this.activePropertyId;
         const response = await fetch(this.getUrl('/invoices/generate-cycle'), {
@@ -871,8 +1025,10 @@ class ApiService {
         paymentMode: string,
         transactionRef?: string,
         paidOn?: string,
-        amount?: number
+        amount?: number,
+        idempotencyKey?: string
     ): Promise<Invoice> {
+        const effectiveKey = idempotencyKey || `PAY-${invoiceId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         const response = await fetch(this.getUrl(`/invoices/${encodeURIComponent(invoiceId)}/pay`), {
             method: 'POST',
             headers: this.getHeaders(),
@@ -881,6 +1037,7 @@ class ApiService {
                 transactionRef: transactionRef || undefined,
                 paidOn: paidOn || undefined,
                 amount: amount && amount > 0 ? amount : undefined,
+                idempotencyKey: effectiveKey,
             }),
         });
         const item = await this.parseResponse<any>(response);
@@ -903,6 +1060,72 @@ class ApiService {
             createdAt: item.createdAt,
             propertyId: item.propertyId,
         };
+    }
+
+    public async createAuthoritativePayment(paymentReq: PaymentRequest): Promise<Payment> {
+        const effectiveKey = paymentReq.idempotencyKey || `PAY-${paymentReq.invoiceId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        const response = await fetch(this.getUrl('/payments'), {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify({
+                ...paymentReq,
+                idempotencyKey: effectiveKey,
+            }),
+        });
+        return this.parseResponse<Payment>(response);
+    }
+
+    public async getPaymentsForInvoice(invoiceId: string | number): Promise<Payment[]> {
+        const response = await fetch(this.getUrl(`/payments/invoice/${encodeURIComponent(String(invoiceId))}`), {
+            headers: this.getHeaders(),
+        });
+        return this.parseResponse<Payment[]>(response);
+    }
+
+    public async getLedgerByTenant(tenantUid: string): Promise<Transaction[]> {
+        const response = await fetch(this.getUrl(`/ledger/tenant/${encodeURIComponent(tenantUid)}`), {
+            headers: this.getHeaders(),
+        });
+        const data = await this.parseResponse<any[]>(response);
+        return data.map((item: any): Transaction => ({
+            id: String(item.id),
+            date: item.date,
+            referenceNumber: item.referenceNumber,
+            type: (item.type || 'credit').toLowerCase() as any,
+            accountHead: item.accountHead,
+            description: item.description,
+            tenantOrVendor: item.tenantOrVendor,
+            amount: item.amount,
+            paymentMode: item.paymentMode,
+            runningBalance: item.runningBalance,
+            propertyId: item.propertyId,
+            tenantUid: item.tenantUid,
+            invoiceId: item.invoiceId,
+            paymentId: item.paymentId,
+        }));
+    }
+
+    public async getLedgerByInvoice(invoiceId: string | number): Promise<Transaction[]> {
+        const response = await fetch(this.getUrl(`/ledger/invoice/${encodeURIComponent(String(invoiceId))}`), {
+            headers: this.getHeaders(),
+        });
+        const data = await this.parseResponse<any[]>(response);
+        return data.map((item: any): Transaction => ({
+            id: String(item.id),
+            date: item.date,
+            referenceNumber: item.referenceNumber,
+            type: (item.type || 'credit').toLowerCase() as any,
+            accountHead: item.accountHead,
+            description: item.description,
+            tenantOrVendor: item.tenantOrVendor,
+            amount: item.amount,
+            paymentMode: item.paymentMode,
+            runningBalance: item.runningBalance,
+            propertyId: item.propertyId,
+            tenantUid: item.tenantUid,
+            invoiceId: item.invoiceId,
+            paymentId: item.paymentId,
+        }));
     }
 
     public async getLedgerBalance(propertyId?: number): Promise<number> {
@@ -948,6 +1171,69 @@ class ApiService {
         return await this.parseResponse<DemographicsReport>(response);
     }
 
+    public async getAnalyticsKpis(propertyId?: number): Promise<AnalyticsKpis> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/reports/analytics/kpis?propertyId=${propId}`) : this.getUrl('/reports/analytics/kpis');
+        const response = await fetch(url, { headers: this.getHeaders() });
+        return await this.parseResponse<AnalyticsKpis>(response);
+    }
+
+    public async getRoomTypeYields(propertyId?: number): Promise<RoomTypeYield[]> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/reports/analytics/room-type-yield?propertyId=${propId}`) : this.getUrl('/reports/analytics/room-type-yield');
+        const response = await fetch(url, { headers: this.getHeaders() });
+        return await this.parseResponse<RoomTypeYield[]>(response);
+    }
+
+    public async getRevenueTrends(propertyId?: number, months: number = 6): Promise<RevenueTrend[]> {
+        const propId = propertyId ?? this.activePropertyId;
+        const params = new URLSearchParams();
+        if (propId) params.append('propertyId', String(propId));
+        params.append('months', String(months));
+        const url = this.getUrl(`/reports/analytics/revenue-trends?${params.toString()}`);
+        const response = await fetch(url, { headers: this.getHeaders() });
+        return await this.parseResponse<RevenueTrend[]>(response);
+    }
+
+    public async getDefaultersAging(propertyId?: number): Promise<DefaulterAgingReport> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/reports/analytics/defaulters-aging?propertyId=${propId}`) : this.getUrl('/reports/analytics/defaulters-aging');
+        const response = await fetch(url, { headers: this.getHeaders() });
+        return await this.parseResponse<DefaulterAgingReport>(response);
+    }
+
+    public async getSecurityDepositsReport(propertyId?: number): Promise<SecurityDepositReport> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/reports/analytics/deposits-custody?propertyId=${propId}`) : this.getUrl('/reports/analytics/deposits-custody');
+        const response = await fetch(url, { headers: this.getHeaders() });
+        return await this.parseResponse<SecurityDepositReport>(response);
+    }
+
+    public async getTurnoverAnalytics(propertyId?: number): Promise<TurnoverAnalytics> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/reports/analytics/turnover?propertyId=${propId}`) : this.getUrl('/reports/analytics/turnover');
+        const response = await fetch(url, { headers: this.getHeaders() });
+        return await this.parseResponse<TurnoverAnalytics>(response);
+    }
+
+    public async downloadReportCsv(reportType: 'rent-roll' | 'defaulters' | 'deposits' | 'ledger', propertyId?: number): Promise<void> {
+        const propId = propertyId ?? this.activePropertyId;
+        const url = propId ? this.getUrl(`/reports/export/${reportType}?propertyId=${propId}`) : this.getUrl(`/reports/export/${reportType}`);
+        const response = await fetch(url, { headers: this.getHeaders() });
+        if (!response.ok) {
+            throw new Error(`Failed to download report: ${response.statusText}`);
+        }
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = `${reportType}_report_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+    }
+
     public async recordTransaction(dto: {
         type: 'credit' | 'debit';
         accountHead: string;
@@ -984,25 +1270,6 @@ class ApiService {
     }
 
     /**
-     * Seeds mock data into localStorage on demand (only for testing).
-     * Does NOT initialize upfront automatically.
-     */
-    public async loadMockData(): Promise<void> {
-        this.setStorage(STORAGE_KEYS.ACTIONS, INITIAL_CRITICAL_ACTIONS);
-        this.setStorage(STORAGE_KEYS.TRANSACTIONS, INITIAL_TRANSACTIONS);
-        this.setStorage(STORAGE_KEYS.INVOICES, INITIAL_INVOICES);
-    }
-
-    /**
-     * Clears all mock/localStorage data.
-     */
-    public async clearMockData(): Promise<void> {
-        localStorage.removeItem(STORAGE_KEYS.ACTIONS);
-        localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
-        localStorage.removeItem(STORAGE_KEYS.INVOICES);
-    }
-
-    /**
      * Wipes all backend database mock/transactional records and clears local storage.
      */
     public async cleanDatabase(): Promise<{ status: string; message: string; timestamp: string }> {
@@ -1011,7 +1278,7 @@ class ApiService {
             headers: this.getHeaders(),
         });
         const result = await this.parseResponse<{ status: string; message: string; timestamp: string }>(response);
-        await this.clearMockData();
+        this.resetAllData();
         return result;
     }
 
@@ -1229,12 +1496,16 @@ class ApiService {
     }
 
     public async submitVacateRequest(data: Partial<VacateRequest>): Promise<VacateRequest> {
+        const propId = data.propertyId ?? this.activePropertyId;
         const response = await fetch(
             this.getUrl('/vacate-requests'),
             {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
+                headers: this.getHeaders(),
+                body: JSON.stringify({
+                    ...data,
+                    propertyId: propId ?? undefined,
+                }),
             }
         );
 
@@ -1258,7 +1529,7 @@ class ApiService {
             this.getUrl(`/vacate-requests/${id}/reject`),
             {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getHeaders(),
                 body: JSON.stringify({ reason }),
             }
         );
@@ -1276,7 +1547,7 @@ class ApiService {
             this.getUrl(`/vacate-requests/${id}/charges`),
             {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.getHeaders(),
                 body: JSON.stringify({ maintenanceCharge, breakageCharge, notes }),
             }
         );
@@ -1310,23 +1581,182 @@ class ApiService {
     }
 
     // =========================================================
+    // RAZORPAY 3RD-PARTY GATEWAY & PUBLIC INVOICES
+    // =========================================================
+
+    public async getPublicInvoice(invoiceNumber: string): Promise<PublicInvoice> {
+        const response = await fetch(
+            this.getUrl(`/public/invoices/${encodeURIComponent(invoiceNumber)}`),
+            { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        return await this.parseResponse<PublicInvoice>(response);
+    }
+
+    public async createRazorpayOrder(invoiceNumber: string, amount?: number): Promise<RazorpayOrderResponse> {
+        const response = await fetch(
+            this.getUrl('/payments/razorpay/create-order'),
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ invoiceNumber, amount }),
+            }
+        );
+
+        return await this.parseResponse<RazorpayOrderResponse>(response);
+    }
+
+    public async verifyRazorpayPayment(payload: RazorpayVerifyRequest): Promise<Payment> {
+        const response = await fetch(
+            this.getUrl('/payments/razorpay/verify-payment'),
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            }
+        );
+
+        return await this.parseResponse<Payment>(response);
+    }
+
+    // =========================================================
+    // AUTOMATED RENT REMINDERS & COLLECTION DISPATCH
+    // =========================================================
+
+    public async getRentRemindersQueue(category?: string, propertyId?: number): Promise<RentReminderItem[]> {
+        const queryParams = new URLSearchParams();
+        if (category && category !== 'ALL') {
+            queryParams.append('category', category);
+        }
+        const effectivePropId = propertyId ?? this.activePropertyId;
+        if (effectivePropId != null) {
+            queryParams.append('propertyId', String(effectivePropId));
+        }
+
+        const query = queryParams.toString();
+        const url = this.getUrl(`/notifications/reminders/queue${query ? `?${query}` : ''}`);
+
+        const response = await fetch(url, {
+            headers: this.getHeaders(),
+        });
+
+        return await this.parseResponse<RentReminderItem[]>(response);
+    }
+
+    public async dispatchRentReminders(request: SendReminderRequest, propertyId?: number): Promise<SendReminderResult> {
+        const queryParams = new URLSearchParams();
+        const effectivePropId = propertyId ?? this.activePropertyId;
+        if (effectivePropId != null) {
+            queryParams.append('propertyId', String(effectivePropId));
+        }
+
+        const query = queryParams.toString();
+        const url = this.getUrl(`/notifications/reminders/send${query ? `?${query}` : ''}`);
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify(request),
+        });
+
+        return await this.parseResponse<SendReminderResult>(response);
+    }
+
+    public async getReminderStats(propertyId?: number): Promise<ReminderStats> {
+        const queryParams = new URLSearchParams();
+        const effectivePropId = propertyId ?? this.activePropertyId;
+        if (effectivePropId != null) {
+            queryParams.append('propertyId', String(effectivePropId));
+        }
+
+        const query = queryParams.toString();
+        const url = this.getUrl(`/notifications/reminders/stats${query ? `?${query}` : ''}`);
+
+        const response = await fetch(url, {
+            headers: this.getHeaders(),
+        });
+
+        return await this.parseResponse<ReminderStats>(response);
+    }
+
+    public async getReminderLogs(params?: { propertyId?: number; tenantUid?: string; invoiceId?: number }): Promise<ReminderLog[]> {
+        const queryParams = new URLSearchParams();
+        const effectivePropId = params?.propertyId ?? this.activePropertyId;
+        if (effectivePropId != null) {
+            queryParams.append('propertyId', String(effectivePropId));
+        }
+        if (params?.tenantUid) {
+            queryParams.append('tenantUid', params.tenantUid);
+        }
+        if (params?.invoiceId != null) {
+            queryParams.append('invoiceId', String(params.invoiceId));
+        }
+
+        const query = queryParams.toString();
+        const url = this.getUrl(`/notifications/reminders/logs${query ? `?${query}` : ''}`);
+
+        const response = await fetch(url, {
+            headers: this.getHeaders(),
+        });
+
+        return await this.parseResponse<ReminderLog[]>(response);
+    }
+
+    // =========================================================
+    // AUTOMATED MORNING CRON SCHEDULER
+    // =========================================================
+
+    public async getReminderSchedulerConfig(): Promise<ReminderSchedulerConfig> {
+        const url = this.getUrl('/notifications/reminders/scheduler/config');
+        const response = await fetch(url, {
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<ReminderSchedulerConfig>(response);
+    }
+
+    public async updateReminderSchedulerConfig(config: Partial<ReminderSchedulerConfig>): Promise<ReminderSchedulerConfig> {
+        const url = this.getUrl('/notifications/reminders/scheduler/config');
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: this.getHeaders(),
+            body: JSON.stringify(config),
+        });
+        return await this.parseResponse<ReminderSchedulerConfig>(response);
+    }
+
+    public async triggerReminderSchedulerRun(propertyId?: number): Promise<ReminderSchedulerRunResult> {
+        const queryParams = new URLSearchParams();
+        const effectivePropId = propertyId ?? this.activePropertyId;
+        if (effectivePropId != null) {
+            queryParams.append('propertyId', String(effectivePropId));
+        }
+        const query = queryParams.toString();
+        const url = this.getUrl(`/notifications/reminders/scheduler/trigger${query ? `?${query}` : ''}`);
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<ReminderSchedulerRunResult>(response);
+    }
+
+    public async getReminderSchedulerRuns(limit = 15): Promise<ReminderSchedulerRun[]> {
+        const url = this.getUrl(`/notifications/reminders/scheduler/runs?limit=${limit}`);
+        const response = await fetch(url, {
+            headers: this.getHeaders(),
+        });
+        return await this.parseResponse<ReminderSchedulerRun[]>(response);
+    }
+
+    // =========================================================
     // RESET
     // =========================================================
 
     public resetAllData(): void {
-        localStorage.removeItem(
-            STORAGE_KEYS.ACTIONS
-        );
-
-        localStorage.removeItem(
-            STORAGE_KEYS.TRANSACTIONS
-        );
-
-        localStorage.removeItem(
-            STORAGE_KEYS.INVOICES
-        );
+        localStorage.removeItem('rms_actions_v2');
+        localStorage.removeItem('rms_transactions_v2');
+        localStorage.removeItem('rms_invoices_v3');
     }
 }
 
 export const apiService =
-    new ApiService();
+    new ApiService();

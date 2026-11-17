@@ -11,10 +11,15 @@ import { LedgerView } from './components/finance/LedgerView';
 import { ReportsView } from './components/reports/ReportsView';
 import { SettingsView } from './components/settings/SettingsView';
 import { TenantPaymentHistoryView } from './components/tenants/TenantPaymentHistoryView';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { PublicTenantPayView } from './components/public/PublicTenantPayView';
+import { RentReminderCenterView } from './components/finance/RentReminderCenterView';
 
 export function App() {
     const navigate = useNavigate();
+    const location = useLocation();
+
+
 
     // React Router is the single source of navigation state.
     // Existing feature components can continue using PageId callbacks.
@@ -29,6 +34,7 @@ export function App() {
             reports: '/reports',
             settings: '/settings',
             'payment-history': '/payment-history',
+            reminders: '/reminders',
         };
 
         navigate(routes[page]);
@@ -141,6 +147,8 @@ export function App() {
         rentPerMonth: number;
         occupancy: number;
         available: boolean;
+        blockId?: number;
+        floorId?: number;
     }) => {
         await apiService.createRoom(roomData);
 
@@ -299,42 +307,6 @@ export function App() {
         }
     };
 
-    const handleAllocateRoom = async (roomNumber: string, tenantName: string) => {
-        const updatedRoom = await apiService.allocateRoom(roomNumber, tenantName);
-        setRooms(prev => prev.map(r => (r.roomNumber === roomNumber ? updatedRoom : r)));
-
-        // Create corresponding admission and tenant
-        const newAdmission: Omit<Admission, 'id' | 'allocatedAt'> = {
-            residentName: tenantName,
-            phone: '+91 98000 00000',
-            email: `${tenantName.toLowerCase().replace(/\s+/g, '')}@example.com`,
-            roomNumber,
-            monthlyRent: updatedRoom.rent,
-            moveInDate: new Date().toISOString().split('T')[0],
-            hometown: 'Bangalore',
-            profession: 'Software Engineer',
-            category: 'working',
-            status: 'confirmed',
-        };
-        const createdAdm = await apiService.createAdmission(newAdmission);
-        setAdmissions(prev => [createdAdm, ...prev]);
-
-        const createdTenant = await apiService.addTenant({
-            name: tenantName,
-            phone: '+91 98000 00000',
-            email: `${tenantName.toLowerCase().replace(/\s+/g, '')}@example.com`,
-            roomNumber,
-            monthlyRent: updatedRoom.rent,
-            joinedDate: new Date().toISOString().split('T')[0],
-            hometown: 'Bangalore',
-            profession: 'Software Engineer',
-            category: 'working',
-            paymentStatus: 'verified',
-            status: 'confirmed',
-        });
-        setTenants(prev => [createdTenant, ...prev]);
-    };
-
     const handleRecordPayment = async (
         invoiceId: string,
         paymentMode: string,
@@ -371,6 +343,12 @@ export function App() {
         return result;
     };
 
+    const handleRecordTransaction = async (dto: any) => {
+        await apiService.recordTransaction(dto);
+        const updatedTx = await apiService.getTransactions(undefined, selectedPropertyId ?? undefined);
+        setTransactions(updatedTx);
+    };
+
     const handleResetData = async () => {
         try {
             await apiService.cleanDatabase();
@@ -382,6 +360,16 @@ export function App() {
             alert('Local storage data reset.');
         }
     };
+
+    // Public Tenant Payment Route (Mobile-first standalone consumer flow without admin AppShell)
+    if (location.pathname.startsWith('/pay/') || location.pathname === '/pay') {
+        return (
+            <Routes>
+                <Route path="/pay/:invoiceNumber" element={<PublicTenantPayView />} />
+                <Route path="/pay" element={<PublicTenantPayView />} />
+            </Routes>
+        );
+    }
 
     if (loading) {
         return (
@@ -403,6 +391,8 @@ export function App() {
             selectedPropertyId={selectedPropertyId}
             onSelectProperty={handleSelectProperty}
             currentUser={activeUser}
+            tenants={tenants}
+            rooms={rooms}
         >
             {backendError && (
                 <div className="mb-4 bg-amber-50 border border-amber-200/90 rounded-xl p-3.5 text-xs text-amber-900 flex items-center justify-between shadow-xs animate-in fade-in duration-150">
@@ -437,6 +427,7 @@ export function App() {
                             onNavigate={handleNavigate}
                             onQuickAdmission={() => handleNavigate('admissions')}
                             onRecordPayment={handleRecordPayment}
+                            onRefreshData={loadData}
                         />
                     }
                 />
@@ -446,6 +437,7 @@ export function App() {
                     element={
                         <TenantsView
                             tenants={tenants}
+                            rooms={rooms}
                             onAddTenant={handleAddTenant}
                             onUpdateTenant={handleUpdateTenant}
                             onDeleteTenant={handleDeleteTenant}
@@ -462,18 +454,17 @@ export function App() {
                 <Route
                     path="/payment-history"
                     element={
-                        selectedPaymentTenant || tenants.length > 0 ? (
-                            <TenantPaymentHistoryView
-                                tenant={selectedPaymentTenant || tenants[0]}
-                                allTenants={tenants}
-                                rooms={rooms}
-                                invoices={invoices}
-                                onSelectTenant={setSelectedPaymentTenant}
-                                onBack={() => navigate('/tenants')}
-                            />
-                        ) : (
-                            <Navigate to="/tenants" replace />
-                        )
+                        <TenantPaymentHistoryView
+                            tenant={selectedPaymentTenant || undefined}
+                            allTenants={tenants}
+                            rooms={rooms}
+                            invoices={invoices}
+                            onSelectTenant={setSelectedPaymentTenant}
+                            onBack={() => {
+                                setSelectedPaymentTenant(null);
+                                navigate('/tenants');
+                            }}
+                        />
                     }
                 />
 
@@ -496,7 +487,6 @@ export function App() {
                     element={
                         <RoomsView
                             rooms={rooms}
-                            onAllocateRoom={handleAllocateRoom}
                             onCreateRoom={handleCreateRoom}
                             onUpdateRoom={handleUpdateRoom}
                             onDeleteRoom={handleDeleteRoom}
@@ -523,6 +513,7 @@ export function App() {
                     element={
                         <LedgerView
                             transactions={transactions}
+                            onRecordTransaction={handleRecordTransaction}
                         />
                     }
                 />
@@ -552,6 +543,16 @@ export function App() {
                             onDeleteUser={handleDeleteUser}
                             onResetData={handleResetData}
                             onReloadData={loadData}
+                        />
+                    }
+                />
+
+                <Route
+                    path="/reminders"
+                    element={
+                        <RentReminderCenterView
+                            propertyId={selectedPropertyId}
+                            onNavigate={handleNavigate}
                         />
                     }
                 />

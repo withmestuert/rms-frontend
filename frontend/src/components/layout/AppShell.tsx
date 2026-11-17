@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { apiService } from '../../services/apiService';
-import { Property, User } from '../../types';
+import { Property, User, Tenant, Room } from '../../types';
 
 import {
     Building2,
@@ -43,6 +43,8 @@ interface AppShellProps {
     onSelectProperty?: (property: Property) => void;
     currentUser?: User | null;
     onLogout?: () => void;
+    tenants?: Tenant[];
+    rooms?: Room[];
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
@@ -53,6 +55,8 @@ export const AppShell: React.FC<AppShellProps> = ({
     onSelectProperty,
     currentUser: currentUserProp,
     onLogout,
+    tenants: propsTenants,
+    rooms: propsRooms,
 }) => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -64,9 +68,17 @@ export const AppShell: React.FC<AppShellProps> = ({
     const [isPropertyDropdownOpen, setIsPropertyDropdownOpen] = useState(false);
     const [showNotificationToast, setShowNotificationToast] = useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-    const profileMenuRef = React.useRef<HTMLDivElement>(null);
+    const profileMenuRef = useRef<HTMLDivElement>(null);
     const [internalProperties, setInternalProperties] = useState<Property[]>([]);
+    const [internalTenants, setInternalTenants] = useState<Tenant[]>([]);
+    const [internalRooms, setInternalRooms] = useState<Room[]>([]);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+    // Global Header Search State
+    const [headerSearch, setHeaderSearch] = useState('');
+    const [isSearchFocused, setIsSearchFocused] = useState(false);
+    const searchContainerRef = useRef<HTMLDivElement>(null);
+    const searchInputRef = useRef<HTMLInputElement>(null);
 
     const activeUser = currentUserProp ?? currentUser;
 
@@ -213,12 +225,55 @@ export const AppShell: React.FC<AppShellProps> = ({
         setIsMobileSidebarOpen(false);
     };
 
+    // Load tenants and rooms if not passed as props
+    useEffect(() => {
+        if (propsTenants === undefined) {
+            apiService.getTenants().then(setInternalTenants).catch(() => {});
+        }
+        if (propsRooms === undefined) {
+            apiService.getRooms().then(setInternalRooms).catch(() => {});
+        }
+    }, [propsTenants, propsRooms]);
+
+    const effectiveTenants = propsTenants !== undefined ? propsTenants : internalTenants;
+    const effectiveRooms = propsRooms !== undefined ? propsRooms : internalRooms;
+
+    const matchingTenants = useMemo(() => {
+        const q = headerSearch.trim().toLowerCase();
+        if (!q) return [];
+        return effectiveTenants.filter(t =>
+            t.name.toLowerCase().includes(q) ||
+            t.phone.includes(q) ||
+            t.roomNumber.toLowerCase().includes(q) ||
+            (t.hometown && t.hometown.toLowerCase().includes(q)) ||
+            (t.profession && t.profession.toLowerCase().includes(q))
+        ).slice(0, 6);
+    }, [headerSearch, effectiveTenants]);
+
+    const matchingRooms = useMemo(() => {
+        const q = headerSearch.trim().toLowerCase();
+        if (!q) return [];
+        return effectiveRooms.filter(r =>
+            r.roomNumber.toLowerCase().includes(q) ||
+            String(r.floor).toLowerCase().includes(q)
+        ).slice(0, 3);
+    }, [headerSearch, effectiveRooms]);
+
+    const handleHeaderSearchSubmit = (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        const q = headerSearch.trim();
+        if (!q) return;
+        setIsSearchFocused(false);
+        navigate(`/tenants?search=${encodeURIComponent(q)}`);
+    };
+
     // Global Keyboard Shortcuts (Ctrl + K for Search, Ctrl + B for Sidebar Toggle)
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
                 e.preventDefault();
-                setIsSearchModalOpen(prev => !prev);
+                searchInputRef.current?.focus();
+                setIsSearchFocused(true);
             }
 
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
@@ -227,6 +282,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             }
 
             if (e.key === 'Escape') {
+                setIsSearchFocused(false);
                 setIsSearchModalOpen(false);
                 setIsMobileSidebarOpen(false);
                 setIsProfileMenuOpen(false);
@@ -239,21 +295,22 @@ export const AppShell: React.FC<AppShellProps> = ({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    // Close profile menu when clicking outside
+    // Close profile menu and search popover when clicking outside
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
                 setIsProfileMenuOpen(false);
             }
+            if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+                setIsSearchFocused(false);
+            }
         };
 
-        if (isProfileMenuOpen) {
-            document.addEventListener('mousedown', handleClickOutside);
-        }
+        document.addEventListener('mousedown', handleClickOutside);
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [isProfileMenuOpen]);
+    }, []);
 
     // Close menus on route change
     useEffect(() => {
@@ -317,7 +374,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         switch (pathname) {
             case '/':
             case '/dashboard':
-                return 'Greenwood PG';
+                return selectedProperty || 'Property Operations';
 
             case '/tenants':
                 return 'Tenant Directory';
@@ -342,6 +399,9 @@ export const AppShell: React.FC<AppShellProps> = ({
 
             case '/payment-history':
                 return 'Tenant Payment History';
+
+            case '/reminders':
+                return 'Rent Reminders & Dispatch Center';
 
             case '/reports':
                 return 'Operational Reports';
@@ -764,6 +824,28 @@ export const AppShell: React.FC<AppShellProps> = ({
                             </span>
                         </NavLink>
 
+                        <NavLink
+                            id="nav-reminders"
+                            to="/reminders"
+                            onClick={() =>
+                                setIsMobileSidebarOpen(false)
+                            }
+                            title="Rent Reminders & Dispatch"
+                            className={navigationClassName}
+                        >
+                            <Bell className="w-4 h-4 shrink-0" />
+
+                            <span
+                                className={
+                                    isSidebarCollapsed
+                                        ? 'md:hidden'
+                                        : 'inline'
+                                }
+                            >
+                                Reminders &amp; Dispatch
+                            </span>
+                        </NavLink>
+
                         {/* Separator / Reports */}
                         {isSidebarCollapsed && (
                             <div className="hidden md:block h-px w-6 mx-auto bg-slate-100 my-1.5" />
@@ -846,7 +928,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                             >
                                 {activeUser
                                     ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-                                    : 'RS'}
+                                    : '—'}
                             </div>
 
                             <div
@@ -856,13 +938,13 @@ export const AppShell: React.FC<AppShellProps> = ({
                                     }`}
                             >
                                 <span className="text-xs font-semibold text-slate-900 truncate">
-                                    {activeUser?.fullName ?? 'Rajesh Sharma'}
+                                    {activeUser?.fullName ?? 'No User Assigned'}
                                 </span>
 
                                 <span className="text-[11px] text-slate-500 truncate">
                                     {activeUser
                                         ? activeUser.role.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
-                                        : 'Property Operations'}
+                                        : 'Unassigned Role'}
                                 </span>
                             </div>
                         </div>
@@ -902,6 +984,152 @@ export const AppShell: React.FC<AppShellProps> = ({
                         >
                             <Menu className="w-5 h-5" />
                         </button>
+                    </div>
+
+                    {/* Center: Global Header Search Bar (Same functionality as tenant/payment page) */}
+                    <div
+                        ref={searchContainerRef}
+                        className="relative flex-1 max-w-[210px] sm:max-w-xs md:max-w-md mx-2 sm:mx-4"
+                    >
+                        <form onSubmit={handleHeaderSearchSubmit} className="relative w-full">
+                            <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            <input
+                                ref={searchInputRef}
+                                type="text"
+                                value={headerSearch}
+                                onChange={e => {
+                                    setHeaderSearch(e.target.value);
+                                    if (!isSearchFocused) setIsSearchFocused(true);
+                                }}
+                                onFocus={() => setIsSearchFocused(true)}
+                                placeholder="Search by name or room number..."
+                                className="w-full pl-8 sm:pl-9 pr-8 sm:pr-14 py-1.5 sm:py-2 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all shadow-2xs"
+                            />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                {headerSearch ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setHeaderSearch('');
+                                            searchInputRef.current?.focus();
+                                        }}
+                                        className="p-0.5 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                                        title="Clear search"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                ) : (
+                                    <span className="hidden sm:inline-flex items-center font-mono text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 select-none">
+                                        Ctrl+K
+                                    </span>
+                                )}
+                            </div>
+                        </form>
+
+                        {/* Search Results Dropdown */}
+                        {isSearchFocused && headerSearch.trim().length > 0 && (
+                            <div className="absolute left-0 right-0 sm:w-96 top-full mt-1.5 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-[75vh] overflow-y-auto">
+                                {matchingTenants.length === 0 && matchingRooms.length === 0 ? (
+                                    <div className="py-6 px-4 text-center text-xs text-slate-400">
+                                        <Search className="w-5 h-5 mx-auto mb-1.5 text-slate-300" />
+                                        <p>No residents or rooms match "{headerSearch}"</p>
+                                        <button
+                                            type="button"
+                                            onClick={handleHeaderSearchSubmit}
+                                            className="mt-2 text-xs font-semibold text-blue-600 hover:underline inline-block"
+                                        >
+                                            Search in Tenants directory →
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {matchingTenants.length > 0 && (
+                                            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                                Residents ({matchingTenants.length})
+                                            </div>
+                                        )}
+                                        {matchingTenants.map(t => (
+                                            <button
+                                                key={t.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    navigate(`/tenants?search=${encodeURIComponent(t.name)}`);
+                                                    setIsSearchFocused(false);
+                                                    setHeaderSearch('');
+                                                }}
+                                                className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center justify-between gap-2 transition-colors cursor-pointer group"
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <div className="w-7 h-7 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-bold text-xs flex items-center justify-center shrink-0">
+                                                        {t.name[0]?.toUpperCase()}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <div className="font-semibold text-slate-900 text-xs truncate group-hover:text-blue-600">
+                                                            {t.name}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-400 font-mono">
+                                                            {t.phone}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <span className="text-[10px] font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                                        Room {t.roomNumber}
+                                                    </span>
+                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                                        t.paymentStatus === 'verified'
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                    }`}>
+                                                        {t.paymentStatus === 'verified' ? 'Paid' : 'Pending'}
+                                                    </span>
+                                                </div>
+                                            </button>
+                                        ))}
+
+                                        {matchingRooms.length > 0 && (
+                                            <>
+                                                <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-t border-slate-100 mt-1">
+                                                    Rooms ({matchingRooms.length})
+                                                </div>
+                                                {matchingRooms.map(r => (
+                                                    <button
+                                                        key={r.roomNumber}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            navigate('/rooms');
+                                                            setIsSearchFocused(false);
+                                                            setHeaderSearch('');
+                                                        }}
+                                                        className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between text-xs text-slate-700 transition-colors"
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <DoorOpen className="w-3.5 h-3.5 text-slate-400" />
+                                                            <span className="font-bold text-slate-800">Room {r.roomNumber}</span>
+                                                            <span className="text-[11px] text-slate-400">• Floor {r.floor}</span>
+                                                        </div>
+                                                        <span className="font-mono text-[11px] text-slate-600">
+                                                            {r.occupied}/{r.capacity} beds • ₹{r.rent.toLocaleString('en-IN')}/mo
+                                                        </span>
+                                                    </button>
+                                                ))}
+                                            </>
+                                        )}
+
+                                        <div className="p-2 border-t border-slate-100 bg-slate-50/50 mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                                            <span>Press <kbd className="font-mono font-bold text-slate-700">↵ Enter</kbd> to view in Tenants</span>
+                                            <button
+                                                type="button"
+                                                onClick={handleHeaderSearchSubmit}
+                                                className="text-blue-600 hover:underline font-semibold"
+                                            >
+                                                All Results →
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* Right: Notification & Profile */}
@@ -1029,23 +1257,23 @@ export const AppShell: React.FC<AppShellProps> = ({
                                 }}
                                 aria-expanded={isProfileMenuOpen}
                                 aria-haspopup="true"
-                                title={`User Profile: ${activeUser?.fullName ?? 'Rajesh Sharma'}`}
+                                title={activeUser ? `User Profile: ${activeUser.fullName}` : 'User Profile: No User Assigned'}
                                 className="flex items-center gap-2 p-1 sm:px-2 sm:py-1 rounded-xl hover:bg-slate-100 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                             >
                                 <div className="relative">
                                     <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#091426] text-white flex items-center justify-center text-xs font-bold shadow-xs select-none ring-2 ring-slate-200">
                                         {activeUser
                                             ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-                                            : 'RS'}
+                                            : '—'}
                                     </div>
                                     <span className="absolute bottom-0 right-0 w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
                                 </div>
                                 <div className="hidden lg:flex flex-col text-left">
                                     <span className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[120px]">
-                                        {activeUser?.fullName ?? 'Rajesh Sharma'}
+                                        {activeUser?.fullName ?? 'No User Assigned'}
                                     </span>
                                     <span className="text-[10px] text-slate-400 capitalize truncate max-w-[120px]">
-                                        {activeUser ? activeUser.role.replace(/_/g, ' ').toLowerCase() : 'Property Manager'}
+                                        {activeUser ? activeUser.role.replace(/_/g, ' ').toLowerCase() : 'Unassigned'}
                                     </span>
                                 </div>
                                 <ChevronDown className={`w-3.5 h-3.5 text-slate-400 hidden lg:block transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-180 text-blue-600' : ''}`} />
@@ -1059,23 +1287,32 @@ export const AppShell: React.FC<AppShellProps> = ({
                                         <div className="w-11 h-11 rounded-xl bg-[#091426] text-white flex items-center justify-center text-sm font-bold shadow-xs shrink-0">
                                             {activeUser
                                                 ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-                                                : 'RS'}
+                                                : '—'}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center justify-between gap-1">
                                                 <h4 className="text-xs font-bold text-slate-900 truncate">
-                                                    {activeUser?.fullName ?? 'Rajesh Sharma'}
+                                                    {activeUser?.fullName ?? 'No Active User'}
                                                 </h4>
                                                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
-                                                    {activeUser ? activeUser.role.replace(/_/g, ' ') : 'PROPERTY MANAGER'}
+                                                    {activeUser ? activeUser.role.replace(/_/g, ' ') : 'NOT CONFIGURED'}
                                                 </span>
                                             </div>
                                             <p className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
-                                                @{activeUser?.username ?? 'rajesh.sharma'}
+                                                {activeUser ? `@${activeUser.username}` : '@none'}
                                             </p>
-                                            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-emerald-600 font-semibold">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                                <span>Active • Authenticated</span>
+                                            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-500 font-semibold">
+                                                {activeUser ? (
+                                                    <>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                        <span className="text-emerald-600">Active • Authenticated</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                                        <span>No User Registered</span>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -1085,7 +1322,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                                         <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
                                             <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                             <span className="font-mono text-[11px] text-slate-700 truncate">
-                                                {activeUser?.email ?? 'rajesh@rms.in'}
+                                                {activeUser?.email ?? '—'}
                                             </span>
                                         </div>
                                         {activeUser?.phone && (
