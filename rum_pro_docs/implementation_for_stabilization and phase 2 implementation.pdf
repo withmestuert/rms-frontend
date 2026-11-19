@@ -1,0 +1,239 @@
+# RMS Implementation Plan — Phase 1: Stabilization & Phase 2: Financial Core
+
+## Overview
+
+This implementation plan details the execution of **Phase 1 (Stabilization)** and **Phase 2 (Financial Core)** for the **Residential Tenant Management & Rent Ledger (RMS)** application as requested.
+
+The application is structured as a **modular monolith** with:
+- **Frontend**: React + TypeScript + Vite + Tailwind CSS + Lucide icons (running on port 3000)
+- **Backend**: Spring Boot 4.1 + Spring Data JPA + PostgreSQL (running on port 8080)
+
+---
+
+## 1. Codebase Audit Inventory
+
+| Area | Status | Findings in Current Codebase | Action Required |
+| :--- | :--- | :--- | :--- |
+| **Admissions** | **Substantially Integrated** | Backend `POST /api/admissions` resolves tenant, allocates room with pessimistic lock, and records admission transactionally. Frontend `AdmissionsView` and `apiService` are connected. | Align endpoint path variable semantics (`{id}` vs `{admissionNumber}`); ensure fail-safe transactionality. |
+| **Tenants** | **Partially Integrated** | Backend has full CRUD (`GET`, `POST`, `GET /{uid}`, `PUT /{uid}`, `DELETE /{uid}`, `GET /room/{roomNo}`). Soft delete marks active admissions as `VACATED`. | Remove residual frontend double-creation calls; ensure UI state reflects only backend state. |
+| **Rooms** | **Partially Integrated / Duplicated** | Backend has full CRUD with occupancy sync and capacity protection. However, frontend `RoomsView.tsx` (`onAllocateRoom`), `App.tsx` (`handleAllocateRoom`), and `apiService.ts` (`allocateRoom`) contain **obsolete frontend-only allocation logic** that double-allocates rooms and creates fake admissions/tenants with hardcoded data. | **Remove frontend `allocateRoom` arithmetic and fake admission creation.** Replace with direct navigation/modal linking to the real backend Admission flow. |
+| **Finance / Invoices** | **Prototype / Incomplete** | `Invoice` entity exists, but **lacks database-level unique constraint on `(tenant_uid, month_year)`**. Statuses and balances are updated ad-hoc without formal payment idempotency. | Add database constraint `uk_invoices_tenant_month`. Maintain authoritative status & balance lifecycle. |
+| **Finance / Payments** | **Missing Domain Model** | **No `Payment` entity exists.** Payments currently mutate invoice fields directly and lack a dedicated payment table, payment reference sequence, and **idempotency key protection**. | Implement authoritative `Payment` entity, `PaymentRepository`, `PaymentService`, and `PaymentController` with unique `idempotency_key` enforcement. |
+| **Finance / Ledger** | **Partial / Unlinked** | `LedgerTransaction` exists with basic credit/debit rows, but lacks foreign keys/references to `tenantUid`, `invoiceId`, and `paymentId`. Cannot query ledger by tenant or invoice. | Enhance `LedgerTransaction` entity to store `tenantUid`, `invoiceId`, `paymentId`. Expose `GET /api/ledger/tenant/{tenantUid}` and `GET /api/ledger/invoice/{invoiceId}`. |
+| **Mock / LocalStorage** | **Residual** | `mockData.ts` has empty arrays. `localStorage` is used for config, active property, and notification read states, but old keys (`rms_invoices_v3`, `rms_transactions_v2`) remain. | Clean up obsolete localStorage references; ensure no business calculations or entities reside in localStorage. |
+
+---
+
+## 2. Phase 1 — Stabilization
+
+### 1B. Admissions Integration Verification
+- **Files**:
+  - `rms-backend/src/main/java/com/rms/backend/admissions/controller/AdmissionController.java`
+  - `rms-backend/src/main/java/com/rms/backend/admissions/service/AdmissionService.java`
+  - `frontend/src/services/apiService.ts`
+- **Actions**:
+  - Ensure endpoints support both `{admissionNumber}` (e.g., `ADM-1001`) and numeric ID if queried.
+  - Verify that `POST /api/admissions`, `PUT /api/admissions/{admissionNumber}/confirm`, and `DELETE /api/admissions/{admissionNumber}` run within complete `@Transactional` boundaries. Room pessimistic locking is already active; verify rollback cleans up tenant and room reservation on failure.
+
+### 1C. Tenant Integration Completion
+- **Files**:
+  - `rms-backend/src/main/java/com/rms/backend/tenants/controller/TenantController.java`
+  - `frontend/src/services/apiService.ts`
+  - `frontend/src/components/tenants/TenantsView.tsx`
+  - `frontend/src/App.tsx`
+- **Actions**:
+  - Verify `GET`, `POST`, `PUT`, `DELETE` operations on `/api/tenants` are strictly synchronized with backend.
+  - Ensure tenant deletion triggers room occupancy recalculation on backend (already in place in `TenantService.deleteTenant`).
+  - Eliminate any secondary manual state mutations in `App.tsx` that bypass backend refresh.
+
+### 1D. Room Integration & Elimination of Obsolete Allocation Logic
+- **Files**:
+  - `frontend/src/components/rooms/RoomsView.tsx`
+  - `frontend/src/App.tsx`
+  - `frontend/src/services/apiService.ts`
+- **Actions**:
+  - **Eliminate `apiService.allocateRoom`**: Remove frontend increment arithmetic (`occupied: room.occupied + 1`) and hardcoded fake tenant generation (`+91 98000 00000`, `Bangalore`, `Software Engineer`).
+  - In `RoomsView.tsx`, update the "Allocate Room" action modal:
+    - Instead of creating fake tenants, selecting "Allocate" redirects to `/admissions` with the selected room pre-filled or launches the official admission flow.
+  - Ensure room occupancy and availability are **100% derived from backend state** (`syncRoomOccupancy` in `RoomService`).
+
+### 1E & 1F. Removal of Mock Business Logic & Error Handling
+- **Files**:
+  - `frontend/src/services/apiService.ts`
+  - `rms-backend/src/main/java/com/rms/backend/exception/GlobalExceptionHandler.java`
+- **Actions**:
+  - Remove all fallback mock mutations from `apiService.ts`.
+  - Ensure all API failures return structured error messages:
+    - `400`: Validation / Illegal arguments / Idempotency error
+    - `404`: Resource not found
+    - `409`: Conflict / Unique constraint violation
+    - `500`: Internal server error (clean message, no stack trace leak)
+
+---
+
+## 3. Phase 2 — Financial Core
+
+```text
+                        POST /api/payments
+                                │
+                    Idempotency Key Check
+                    ┌───────────┴───────────┐
+             Existing Key?              New Key
+                  │                        │
+        Return Existing Result        Validate Tenant & Invoice
+        (Zero Duplicate Mutation)          │
+                                      Check Overpayment
+                                           │
+                                  Create Payment Record (CASH/UPI/...)
+                                           │
+                                  Update Invoice (Balance & Status)
+                                           │
+                                  Append Immutable Ledger Entry
+                                           │
+                                        Commit
+```
+
+### 2A & 2B. Invoice Domain & Database Uniqueness (Phase 2B, 2C)
+- **Files**:
+  - `rms-backend/src/main/java/com/rms/backend/billing/entity/Invoice.java`
+  - `rms-backend/src/main/java/com/rms/backend/billing/entity/InvoiceStatus.java`
+  - `rms-backend/src/main/java/com/rms/backend/billing/repository/InvoiceRepository.java`
+- **Actions**:
+  - Add database-level unique constraint to `Invoice`:
+    ```java
+    @Table(name = "invoices", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_invoices_tenant_month", columnNames = {"tenant_uid", "month_year"})
+    })
+    ```
+  - Support authoritative invoice lifecycle statuses: `PENDING`, `PARTIALLY_PAID`, `PAID`, `OVERDUE`, `CANCELLED`.
+  - Provide transient/computed `remainingBalance`: `Math.max(0, amount - paidAmount)`.
+
+### 2C & 2D. Dedicated Payment Domain & Idempotency (Phase 2D, 2E)
+- **Files**:
+  - `[NEW] rms-backend/src/main/java/com/rms/backend/billing/entity/Payment.java`
+  - `[NEW] rms-backend/src/main/java/com/rms/backend/billing/entity/PaymentMode.java`
+  - `[NEW] rms-backend/src/main/java/com/rms/backend/billing/repository/PaymentRepository.java`
+  - `[NEW] rms-backend/src/main/java/com/rms/backend/billing/dto/PaymentRequestDto.java`
+  - `[NEW] rms-backend/src/main/java/com/rms/backend/billing/dto/PaymentResponseDto.java`
+- **Entity Specifications**:
+  ```java
+  @Entity
+  @Table(name = "payments", uniqueConstraints = {
+      @UniqueConstraint(name = "uk_payments_idempotency_key", columnNames = {"idempotency_key"}),
+      @UniqueConstraint(name = "uk_payments_payment_ref", columnNames = {"payment_reference"})
+  })
+  public class Payment {
+      @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+      private Long id;
+      @Column(name = "payment_reference", nullable = false)
+      private String paymentReference; // e.g. PAY-2026-1001
+      @Column(name = "invoice_id", nullable = false)
+      private Long invoiceId;
+      @Column(name = "tenant_uid", nullable = false)
+      private String tenantUid;
+      @Column(name = "amount", nullable = false)
+      private Integer amount;
+      @Column(name = "payment_mode", nullable = false)
+      private String paymentMode; // CASH, UPI, CARD, BANK_TRANSFER
+      @Column(name = "transaction_reference")
+      private String transactionReference;
+      @Column(name = "idempotency_key", nullable = false)
+      private String idempotencyKey;
+      @Column(name = "status", nullable = false)
+      private String status; // SUCCESS, FAILED
+      @Column(name = "created_at", nullable = false)
+      private LocalDateTime createdAt;
+      @Column(name = "property_id")
+      private Long propertyId;
+  }
+  ```
+
+### 2E & 2F. Authoritative Payment Workflow & Idempotency Protection (Phase 2F, 2G, 2H)
+- **Files**:
+  - `rms-backend/src/main/java/com/rms/backend/billing/service/BillingService.java`
+  - `rms-backend/src/main/java/com/rms/backend/billing/controller/PaymentController.java`
+- **Payment Execution Algorithm**:
+  1. **Idempotency Guard**:
+     ```java
+     Optional<Payment> existing = paymentRepository.findByIdempotencyKey(dto.getIdempotencyKey());
+     if (existing.isPresent()) {
+         log.info("Idempotent request detected for key {}. Returning existing payment result.", dto.getIdempotencyKey());
+         return toPaymentResponseDto(existing.get(), invoice);
+     }
+     ```
+  2. **Invoice & Tenant Validation**:
+     - Check invoice exists and belongs to the given tenant.
+     - Reject if invoice is already `PAID`.
+  3. **Overpayment Protection**:
+     - Calculate `outstanding = invoice.getAmount() - invoice.getPaidAmount()`.
+     - If `dto.getAmount() > outstanding`: Throw `IllegalArgumentException("Payment amount (₹...) exceeds outstanding balance (₹...)")`.
+  4. **Record Payment Entity**:
+     - Save `Payment` with generated `paymentReference` (e.g. `PAY-1001`) and `idempotencyKey`.
+  5. **Update Invoice Balance & Status**:
+     - `int newPaid = invoice.getPaidAmount() + dto.getAmount()`.
+     - `invoice.setPaidAmount(newPaid)`.
+     - `invoice.setStatus(newPaid >= invoice.getAmount() ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID)`.
+     - Save `Invoice`.
+  6. **Create Ledger Entry (Immutable Append-Only)**:
+     - Record `LedgerTransaction` of type `CREDIT` linked to `tenantUid`, `invoiceId`, and `paymentId`.
+     - Compute running balance atomically.
+  7. **Commit Transaction**:
+     - All 3 operations (`Payment`, `Invoice`, `Ledger`) are committed within `@Transactional`.
+
+### 2G. Ledger Enhancement (Phase 2I, 2J)
+- **Files**:
+  - `rms-backend/src/main/java/com/rms/backend/billing/entity/LedgerTransaction.java`
+  - `rms-backend/src/main/java/com/rms/backend/billing/repository/LedgerTransactionRepository.java`
+  - `rms-backend/src/main/java/com/rms/backend/billing/controller/LedgerController.java`
+- **Enhancements**:
+  - Add fields to `LedgerTransaction`:
+    - `tenant_uid` (`String`)
+    - `invoice_id` (`Long`)
+    - `payment_id` (`Long`)
+  - Add repository & controller queries:
+    - `GET /api/ledger/tenant/{tenantUid}`
+    - `GET /api/ledger/invoice/{invoiceId}`
+  - Keep historical ledger entries immutable.
+
+### 2H. Frontend Finance Integration (Phase 2L, 2M)
+- **Files**:
+  - `frontend/src/services/apiService.ts`
+  - `frontend/src/components/finance/RentBillingView.tsx`
+  - `frontend/src/types.ts`
+- **Actions**:
+  - Add `Payment` interface to `types.ts`.
+  - Add `recordPayment` in `apiService.ts` that includes a client-generated UUID `idempotencyKey` (e.g. `PAY-KEY-${invoiceId}-${Date.now()}-${uuid()}`).
+  - In `RentBillingView.tsx`:
+    - Ensure recording payment (cash, UPI, etc.) disables the submit button during submission to prevent UI double-clicks, while relying on the backend idempotency key as the authoritative guard.
+    - Refresh invoices, ledger transactions, and dashboard stats upon completion.
+
+---
+
+## 4. Verification & Testing Plan
+
+### Automated Backend Tests
+- `BillingServiceTest.java`:
+  1. `testCreateInvoice()`: Normal invoice generation.
+  2. `testCreateDuplicateInvoiceThrows()`: Enforce period uniqueness for same tenant.
+  3. `testRecordFullPayment()`: Status transitions to `PAID`, balance = 0, payment and credit ledger created.
+  4. `testRecordPartialPayment()`: Status transitions to `PARTIALLY_PAID`, balance updated.
+  5. `testSecondPartialPaymentSettlement()`: Second partial payment closes invoice to `PAID`.
+  6. `testOverpaymentRejected()`: Payment exceeding balance throws `IllegalArgumentException` (400).
+  7. `testPaymentAlreadyPaidInvoiceRejected()`: Throws conflict/exception.
+  8. **Critical Idempotency Test**: Submitting the same request with identical `idempotencyKey` 3 times:
+     - Exactly 1 `Payment` created
+     - Exactly 1 `LedgerTransaction` created
+     - Invoice balance remains correct (no double deduction)
+- Run `./mvnw.cmd test` to ensure all 130+ tests pass with zero errors.
+
+### Automated Frontend Verification
+- Run `npx tsc --noEmit` to verify 0 TypeScript errors.
+- Run `npm run build` to verify production bundle builds cleanly.
+
+### Manual / Browser Verification
+1. **Admissions Flow**: Create an admission for Room 102; verify tenant is created, room capacity updates once, and admission status is PENDING.
+2. **Room Protection**: Verify full room cannot be allocated.
+3. **Billing Cycle Generation**: Generate current month cycle invoices.
+4. **Payment Recording**: Record partial cash payment (e.g., ₹4,000 on an ₹8,000 invoice); verify invoice shows `PARTIALLY_PAID` with balance ₹4,000.
+5. **Idempotency Replay**: Re-send payment with same idempotency key via `curl`; verify status 200 with no new payment or ledger row created.
+6. **Settlement**: Record remaining ₹4,000; verify invoice transitions to `PAID` with balance ₹0.

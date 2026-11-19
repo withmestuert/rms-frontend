@@ -1,0 +1,134 @@
+# Implementation Plan: Backend Endpoints for Properties & Users + Tenant Advance Verification Flow
+
+## Goal Description
+1. **Create Backend Endpoints for `Property` and `Users`**:
+   - Implement complete REST modules (`entity`, `repository`, `service`, `dto`, `controller`) for **Properties** (`/api/properties`) and **Users** (`/api/users`) in `rms-backend`.
+   - Seed default initial properties (matching existing frontend properties like "Greenwood PG - Phase 1", etc.) and default user roles (Admin, Property Manager, Staff).
+   - Expose properties and users to the frontend API service and dynamic UI switchers.
+2. **Ensure Complete Tenant Data Flow (`Admission` &rarr; `Advance Paid Verification` &rarr; `Verified Tenant`)**:
+   - Align backend and frontend states:
+     - When an admission is created via `POST /api/admissions`, it enters `AdmissionStatus.PENDING`, reserving a room capacity slot, and creates the tenant with `AdvancePaidStatus.PENDING`.
+     - Build an explicit, interactive **Advance Payment Verification Workflow** in the UI (both in `AdmissionsView` and `TenantsView`), allowing managers to record payment receipt (e.g. UPI/NEFT/Cash) and trigger the backend verification.
+     - Backend transitions: `AdmissionStatus.PENDING` &rarr; `PAID`, `Tenant.advancePaidStatus` &rarr; `PAID` (Verified Tenant), and moves the room slot from `reservedCapacity` &rarr; `currentOccupancy` (+1).
+     - Provide a standalone endpoint `PUT /api/tenants/{uid}/verify-advance` in `TenantController` for direct tenant advance verification.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> - **Advance Verification Requirement**: Previously, the frontend simulated "Payment auto-checked on enrolment", skipping the verification step. We will introduce a clear "Pending Advance Verification" queue and modal in `AdmissionsView` and `TenantsView`, allowing staff to review and click "Verify Advance Payment", transitioning the tenant from `PENDING` to `VERIFIED`.
+> - **Seeded Data**: Default properties (the 4 properties displayed in the brand switcher) and default users (Admin/Manager) will be seeded if the database tables are empty on startup.
+
+---
+
+## Proposed Changes
+
+### Backend (`rms-backend`)
+
+#### [NEW] Property Module (`com.rms.backend.properties`)
+- **[Property.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/properties/entity/Property.java)**:
+  - Fields: `id` (Long, auto-generated), `name` (unique), `code`, `address`, `city`, `state`, `pincode`, `propertyType` (PG/Hostel/Coliving), `totalFloors`, `totalRooms`, `contactNumber`, `contactEmail`, `status` (ACTIVE), `createdAt`, `updatedAt`.
+- **[PropertyRepository.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/properties/repository/PropertyRepository.java)**:
+  - Spring Data JPA repository with `existsByName(String name)`.
+- **[PropertyRequestDto.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/properties/dto/PropertyRequestDto.java)** & **[PropertyResponseDto.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/properties/dto/PropertyResponseDto.java)**:
+  - Validated request DTO and response mapper.
+- **[PropertyService.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/properties/service/PropertyService.java)**:
+  - CRUD operations: `getAllProperties()`, `getPropertyById(Long id)`, `createProperty(dto)`, `updateProperty(id, dto)`, `deleteProperty(id)`.
+- **[PropertyController.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/properties/controller/PropertyController.java)**:
+  - Endpoints:
+    - `GET /api/properties`
+    - `GET /api/properties/{id}`
+    - `POST /api/properties`
+    - `PUT /api/properties/{id}`
+    - `DELETE /api/properties/{id}`
+
+---
+
+#### [NEW] User Module (`com.rms.backend.users`)
+- **[User.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/users/entity/User.java)**:
+  - Fields: `id` (Long, auto-generated), `username` (unique), `email` (unique), `fullName`, `role` (`ADMIN`, `PROPERTY_MANAGER`, `STAFF`), `phone`, `status` (`ACTIVE`), `createdAt`, `updatedAt`.
+- **[UserRepository.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/users/repository/UserRepository.java)**:
+  - Spring Data JPA repository with `existsByUsername(String)` and `existsByEmail(String)`.
+- **[UserRequestDto.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/users/dto/UserRequestDto.java)** & **[UserResponseDto.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/users/dto/UserResponseDto.java)**:
+  - DTO with validation.
+- **[UserService.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/users/service/UserService.java)**:
+  - CRUD operations: `getAllUsers()`, `getUserById(Long id)`, `createUser(dto)`, `updateUser(id, dto)`, `deleteUser(id)`.
+- **[UserController.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/users/controller/UserController.java)**:
+  - Endpoints:
+    - `GET /api/users`
+    - `GET /api/users/{id}`
+    - `POST /api/users`
+    - `PUT /api/users/{id}`
+    - `DELETE /api/users/{id}`
+
+---
+
+#### [NEW] Seed Initializer (`com.rms.backend.config.DataInitializer`)
+- Seeds default properties (e.g. "Greenwood PG - Phase 1", "Greenwood Residency - Block A (Boys)", "Greenwood Residency - Block B (Girls)", "Skyview Heights PG - Wing 1") and default users (Admin & Property Manager) if repositories are empty.
+
+---
+
+#### [MODIFY] Tenant Verification in Backend
+- **[TenantService.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/tenants/service/TenantService.java)**:
+  - Add `verifyAdvancePayment(String uid, Integer advanceAmount)`:
+    - Sets `tenant.advancePaidStatus = AdvancePaidStatus.PAID`.
+    - If tenant has an associated `PENDING` admission, transitions admission to `PAID`, updates confirmed timestamp, and moves room capacity from reserved to occupied.
+- **[TenantController.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/tenants/controller/TenantController.java)**:
+  - Add `PUT /api/tenants/{uid}/verify-advance` endpoint.
+
+---
+
+### Frontend (`frontend`)
+
+#### [MODIFY] [types.ts](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/types.ts)
+- Add `Property` interface: `id`, `name`, `code`, `address`, `propertyType`, `totalRooms`, `status`.
+- Add `User` interface: `id`, `username`, `email`, `fullName`, `role`, `phone`, `status`.
+
+#### [MODIFY] [apiService.ts](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/services/apiService.ts)
+- Add Property methods: `getProperties()`, `getPropertyById(id)`.
+- Add User methods: `getUsers()`, `getUserById(id)`.
+- Add Tenant Verification method: `verifyTenantAdvance(uid: string, amount?: number): Promise<Tenant>`.
+
+#### [MODIFY] [AppShell.tsx](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/layout/AppShell.tsx)
+- Load properties dynamically from `apiService.getProperties()` (with fallback to default list if offline).
+- Display active user details from `apiService.getUsers()`.
+
+#### [MODIFY] [AdmissionsView.tsx](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/admissions/AdmissionsView.tsx)
+- Add an interactive **"Advance Payment Verification"** banner/section:
+  - Displays pending admissions awaiting advance verification.
+  - Includes a "Verify Advance Payment" modal allowing managers to record receipt details (amount, payment mode: UPI / Cash / Bank Transfer) and confirm.
+  - Upon confirmation, calls `onConfirmAdmission()`, updating the admission to `PAID` and the tenant to `verified`.
+
+#### [MODIFY] [TenantsView.tsx](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/tenants/TenantsView.tsx)
+- In the Tenant table and Profile Inspector:
+  - Show clear badges for `Advance: Verified` vs `Advance: Pending Verification`.
+  - For tenants with pending advance, show a one-click **"Verify Advance Payment"** action button that verifies the tenant, transitions the admission to `PAID`, and reloads active room counts.
+
+#### [MODIFY] [App.tsx](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/App.tsx)
+- Wire `handleVerifyTenantAdvance` into `TenantsView`.
+- Ensure synchronized state refresh across Admissions, Tenants, and Rooms whenever verification completes.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+1. Backend Unit & Controller Tests:
+   - `PropertyControllerTest.java` and `PropertyServiceTest.java`.
+   - `UserControllerTest.java` and `UserServiceTest.java`.
+   - `TenantServiceTest.java` (verifying advance verification workflow).
+   - Run: `./mvnw.cmd test`
+2. Frontend Build:
+   - Run: `npm run build`
+
+### Manual Verification
+1. **Properties & Users API**:
+   - `curl http://localhost:8080/api/properties` -> returns seeded properties.
+   - `curl http://localhost:8080/api/users` -> returns seeded users.
+   - Switch property in AppShell dropdown -> reflects backend properties.
+2. **End-to-End Tenant Lifecycle**:
+   - Enrol a new tenant from `AdmissionsView`.
+   - Verify that Admission status is `PENDING`, Room has `reservedCapacity: 1`, and Tenant has `advancePaidStatus: PENDING`.
+   - Click "Verify Advance Payment" in the Admissions or Tenants view.
+   - Verify that Admission transitions to `PAID`, Tenant transitions to `VERIFIED` (`advancePaidStatus: PAID`), and Room moves slot from `reservedCapacity` to `currentOccupancy`.

@@ -1,0 +1,72 @@
+# RMS Backend — Admission/Enrollment Module: Completed
+
+## What Was Built
+
+The Admission / Enrollment module is now **fully implemented and tested**.
+
+---
+
+## Files Created
+
+### Service Layer
+| File | Description |
+|------|-------------|
+| [`AdmissionService.java`](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/admissions/service/AdmissionService.java) | Core business logic with enrollment, confirmation, cancellation |
+
+### Controller Layer
+| File | Description |
+|------|-------------|
+| [`AdmissionController.java`](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/admissions/controller/AdmissionController.java) | 5 REST endpoints |
+
+### Tests
+| File | Tests |
+|------|-------|
+| [`AdmissionServiceTest.java`](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/test/java/com/rms/backend/admissions/service/AdmissionServiceTest.java) | 18 unit tests (Mockito) |
+| [`AdmissionControllerTest.java`](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/test/java/com/rms/backend/admissions/controller/AdmissionControllerTest.java) | 14 WebMvc slice tests |
+
+### Modified
+| File | Change |
+|------|--------|
+| [`GlobalExceptionHandler.java`](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/exception/GlobalExceptionHandler.java) | Added `IllegalArgumentException` handler → 400 Bad Request |
+
+---
+
+## API Endpoints
+
+| Method | Path | Status | Description |
+|--------|------|--------|-------------|
+| `POST` | `/api/admissions` | `201 Created` | Enroll tenant (new or existing) |
+| `GET` | `/api/admissions` | `200 OK` | List all admissions |
+| `GET` | `/api/admissions/{admissionNumber}` | `200 OK` | Get specific admission |
+| `PUT` | `/api/admissions/{admissionNumber}/confirm` | `200 OK` | Confirm PENDING → PAID |
+| `DELETE` | `/api/admissions/{admissionNumber}` | `200 OK` | Cancel PENDING admission |
+
+---
+
+## Key Business Rules Implemented
+
+1. **Room concurrency lock** — `findByRoomNoWithLock` (pessimistic write) prevents overbooking
+2. **Capacity formula** — `Available = Occupancy − CurrentOccupancy − ReservedCapacity`
+3. **Tenant resolution** — looks up by UID → Aadhaar → Mobile; creates new if not found
+4. **Active admission guard** — a tenant cannot have two PENDING/PAID admissions simultaneously
+5. **Enrollment** — increments `reservedCapacity`; sets status `PENDING`
+6. **Confirmation** — moves slot from `reservedCapacity` → `currentOccupancy`; sets `advancePaidStatus = PAID`
+7. **Cancellation** — frees `reservedCapacity`; deletes tenant if no other admission history
+
+---
+
+## Test Results
+
+```
+Tests run: 48, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+| Test Class | Count | Result |
+|------------|-------|--------|
+| AdmissionControllerTest | 14 | ✅ All pass |
+| AdmissionServiceTest | 18 | ✅ All pass |
+| RmsBackendApplicationTests | 1 | ✅ Pass |
+| TenantControllerTest | 6 | ✅ All pass |
+| TenantServiceTest | 9 | ✅ All pass |
+| **Total** | **48** | **✅ 0 failures** |

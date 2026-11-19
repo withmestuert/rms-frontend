@@ -1,0 +1,85 @@
+# Phase 2 Implementation Plan
+
+## Goal Description
+Enhance the PG CRM (Project RAM V1) suite with:
+1. **Clean White / Light Professional UI Transformation**: Replace dark glassmorphic styling with a crisp, modern, high-contrast white UI design featuring solid cards, subtle borders, clean typography, and professional elevation shadows.
+2. **Dashboard Room Drilldown**: Allow Owner/Admin to click any room card on the Dashboard to open an interactive side drawer/panel displaying room details, currently accommodated tenants, and their complete payment dues & history.
+3. **Owner Cash Payment with OTP Verification**: Enforce that marking payments as Paid via Cash is restricted to the Owner and requires a secure 6-digit OTP sent to the Owner's registered email & phone number before completing the transaction.
+4. **WhatsApp API Pathway & Comprehensive Walkthrough**: Implement a full backend WhatsApp service (supporting Meta WhatsApp Cloud API, Twilio, and webhook endpoints) along with UI configuration/test controls and a step-by-step integration walkthrough.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> - **Owner Cash OTP Flow**: When recording cash payments, the backend generates an OTP and logs/dispatches it to the Owner's email & phone. The UI provides a 6-digit OTP confirmation modal with a live dev helper badge so you can test seamlessly.
+> - **Theme Overhaul**: All glassmorphism blurs and dark neon aesthetics will be transitioned into a clean, modern white enterprise interface (similar to Linear / Stripe / Notion dashboard design).
+
+---
+
+## Proposed Changes
+
+### 1. UI & Styles (Clean White Professional Design)
+#### [MODIFY] [styles.css](file:///c:/Users/Biju%20K/Desktop/pg_crm/ui/styles.css)
+- Replace dark cyber variables with a clean slate-white palette (`--bg-primary: #f8fafc;`, `--bg-card: #ffffff;`, `--border-color: #e2e8f0;`, `--text-main: #0f172a;`, `--text-muted: #64748b;`, `--accent-primary: #2563eb;`).
+- Remove translucent glassmorphism blur and heavy gradients; add clean card borders (`1px solid #e2e8f0`) and subtle shadows (`0 1px 3px rgba(0,0,0,0.06)`).
+- Style interactive room side drawer / modal, cash payment OTP verification dialog, and WhatsApp API configuration panel.
+
+#### [MODIFY] [index.html](file:///c:/Users/Biju%20K/Desktop/pg_crm/ui/index.html)
+- Add "PG Rooms Overview" grid directly onto the Dashboard tab with quick stats and click actions.
+- Add Room Detail Drawer / Side Panel HTML container (`#room-detail-drawer`).
+- Add Cash Payment OTP Verification Modal (`#cash-otp-modal`).
+- Add WhatsApp API Configuration & Testing Card in the WhatsApp Reminders tab.
+
+#### [MODIFY] [app.js](file:///c:/Users/Biju%20K/Desktop/pg_crm/ui/app.js)
+- Implement `openRoomDetailDrawer(roomId)`: loads room info, finds tenants in the room, fetches their rent dues & payment ledger, and renders a clean breakdown.
+- Implement Cash Payment OTP workflow: `initiateCashPayment()`, `handleVerifyCashOtp()`, `resendCashOtp()`.
+- Implement WhatsApp API settings management and direct messaging triggers (`sendWhatsAppReminder()`, `sendWhatsAppReceipt()`).
+
+---
+
+### 2. Backend Services & API Endpoints (Rust)
+#### [NEW] [src/services/otp_service.rs](file:///c:/Users/Biju%20K/Desktop/pg_crm/src/services/otp_service.rs)
+- In-memory thread-safe OTP store with expiration (10 minutes) and verification logic.
+- Generates 6-digit crypto-secure OTP for Cash payment requests.
+- Dispatches OTP notifications to Owner email & phone (logged to notification table).
+
+#### [NEW] [src/services/whatsapp_service.rs](file:///c:/Users/Biju%20K/Desktop/pg_crm/src/services/whatsapp_service.rs)
+- WhatsApp Cloud API (Meta Graph API) & Twilio client abstraction.
+- Methods for sending payment reminders, receipt links, welcome credentials, and cash OTPs.
+- Webhook verification (`hub.challenge`) and message delivery webhook handler.
+
+#### [MODIFY] [src/services/mod.rs](file:///c:/Users/Biju%20K/Desktop/pg_crm/src/services/mod.rs)
+- Export `OtpService` and `WhatsAppService`.
+
+#### [MODIFY] [src/app/server.rs](file:///c:/Users/Biju%20K/Desktop/pg_crm/src/app/server.rs)
+- Add endpoints:
+  - `POST /api/payments/cash-otp/request` -> Generate & send OTP to Owner.
+  - `POST /api/payments/cash-otp/verify` -> Verify OTP and execute cash payment (ledger or enrollment).
+  - `GET /api/whatsapp/config` -> Retrieve current WhatsApp integration status.
+  - `POST /api/whatsapp/config` -> Update WhatsApp API credentials.
+  - `POST /api/whatsapp/send` -> Send manual or templated WhatsApp message.
+  - `GET /api/whatsapp/webhook` & `POST /api/whatsapp/webhook` -> Webhook verification and event receiver.
+
+---
+
+## Verification Plan
+
+### Automated & Build Verification
+1. Run `cargo check` to verify Rust code compiles with zero errors.
+2. Run `cargo build` to ensure all endpoints and services link properly.
+
+### Manual Verification Flow
+1. **Clean White UI Verification**:
+   - Open app UI in browser (`http://localhost:3000`).
+   - Confirm crisp white layout, clean borders, legible typography, and no glassmorphic artifacts.
+2. **Dashboard Room Click Drilldown**:
+   - Click on any Room card on the Dashboard (e.g. Room 101).
+   - Verify that the Room Detail Drawer opens displaying room number header, tenant names, contact details, payment dues, and ledger history.
+3. **Owner Cash Payment with OTP Verification**:
+   - As an Owner, select an unpaid rent or advance fee and click "Pay with Cash".
+   - Confirm OTP modal appears indicating OTP sent to Owner email & phone.
+   - Enter the 6-digit OTP code and submit.
+   - Confirm payment updates to PAID, receipt is generated, and balance clears.
+4. **WhatsApp API Pathway**:
+   - Navigate to WhatsApp tab, test the configuration panel and test message pathway.

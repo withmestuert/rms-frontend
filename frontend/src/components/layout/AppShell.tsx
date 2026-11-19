@@ -926,9 +926,9 @@ export const AppShell: React.FC<AppShellProps> = ({
                             <div
                                 className="w-8 h-8 rounded-full bg-[#091426] text-white flex items-center justify-center font-bold text-xs shrink-0 select-none"
                             >
-                                {activeUser
-                                    ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-                                    : '—'}
+                                {activeUser?.fullName
+                                    ? activeUser.fullName.split(' ').filter(Boolean).map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                    : (activeUser?.username?.slice(0, 2).toUpperCase() || '—')}
                             </div>
 
                             <div
@@ -1262,9 +1262,9 @@ export const AppShell: React.FC<AppShellProps> = ({
                             >
                                 <div className="relative">
                                     <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#091426] text-white flex items-center justify-center text-xs font-bold shadow-xs select-none ring-2 ring-slate-200">
-                                        {activeUser
-                                            ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-                                            : '—'}
+                                        {activeUser?.fullName
+                                            ? activeUser.fullName.split(' ').filter(Boolean).map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                            : (activeUser?.username?.slice(0, 2).toUpperCase() || '—')}
                                     </div>
                                     <span className="absolute bottom-0 right-0 w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
                                 </div>
@@ -1285,9 +1285,9 @@ export const AppShell: React.FC<AppShellProps> = ({
                                     {/* User Identity Header */}
                                     <div className="flex items-start gap-3 pb-3 border-b border-slate-100">
                                         <div className="w-11 h-11 rounded-xl bg-[#091426] text-white flex items-center justify-center text-sm font-bold shadow-xs shrink-0">
-                                            {activeUser
-                                                ? activeUser.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-                                                : '—'}
+                                            {activeUser?.fullName
+                                                ? activeUser.fullName.split(' ').filter(Boolean).map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                                                : (activeUser?.username?.slice(0, 2).toUpperCase() || '—')}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center justify-between gap-1">

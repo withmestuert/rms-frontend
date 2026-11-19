@@ -1,0 +1,77 @@
+# Walkthrough: Backend API Connections & Room Delete 500 Fix
+
+## 1. Room DELETE 500 Error Resolution
+
+### Root Cause
+1. **Foreign Key Constraints & Active Records**: In PostgreSQL, the `admissions` table enforces a foreign key constraint `fk_admissions_room` pointing to `rooms(roomNo)`. Furthermore, rooms in the database had active tenants assigned and/or active admissions and/or `current_occupancy > 0`.
+2. **Unhandled Exception**: When deleting an occupied or referenced room, the database threw a constraint violation that Spring translated into `DataIntegrityViolationException`. Because `GlobalExceptionHandler.java` did not handle this exception, Spring returned a generic `500 Internal Server Error`.
+3. **Missing Guard Checks in `RoomService`**: `RoomService.deleteRoom` called `roomRepository.delete()` without checking occupancy, reserved capacity, assigned tenants, or active admissions.
+4. **Frontend String Response Parsing**: Backend DELETE endpoints return plain text (e.g., `"Room deleted successfully"`), but frontend `parseResponse()` was calling `response.json()`, causing a `SyntaxError: Unexpected token 'R'`.
+
+### Fixes Applied
+- **[RoomService.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/rooms/service/RoomService.java)**:
+  - Injected `TenantRepository` and `AdmissionRepository`.
+  - Added `@Transactional` to `deleteRoom`.
+  - Added pre-deletion validation checks:
+    - Verifies that `currentOccupancy == 0`.
+    - Verifies that `reservedCapacity == 0`.
+    - Verifies that no tenants are assigned (`tenantRepository.countByRoomNo(roomNo) == 0`).
+    - Verifies that no admission records reference the room (`admissionRepository.findByRoom_RoomNo(roomNo).isEmpty()`).
+    - If any check fails, throws `DuplicateResourceException` with an informative message explaining exactly why the room cannot be deleted.
+- **[GlobalExceptionHandler.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/exception/GlobalExceptionHandler.java)**:
+  - Added `@ExceptionHandler(DataIntegrityViolationException.class)` returning `HttpStatus.CONFLICT` (409) with a user-friendly message.
+- **[RoomServiceTest.java](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/test/java/com/rms/backend/rooms/service/RoomServiceTest.java)**:
+  - Added 6 unit tests covering empty room deletion, non-existent room (404), occupied room rejection, reserved room rejection, tenant-linked room rejection, and admission-linked room rejection.
+- **[apiService.ts](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/services/apiService.ts)**:
+  - Updated `parseResponse()` to support JSON, plain text, and 204/empty responses without throwing syntax errors.
+
+---
+
+## 2. Completed Backend Endpoints Matrix
+
+Every backend endpoint documented in the specification is now connected:
+
+| Module | Method | Endpoint | Purpose | Backend | Frontend Connection |
+|---|---|---|---|---|---|
+| **Rooms** | `POST` | `/api/rooms` | Create room | Developed | `apiService.createRoom` |
+| **Rooms** | `GET` | `/api/rooms` | Get all rooms | Developed | `apiService.getRooms` (with accurate tenant-based occupant list) |
+| **Rooms** | `GET` | `/api/rooms/{roomNo}` | Get single room | Developed | `apiService.getRoomByRoomNo` |
+| **Rooms** | `PUT` | `/api/rooms/{roomNo}` | Edit room | Developed | `apiService.updateRoom` (with `RoomRequestDto` fields) |
+| **Rooms** | `DELETE` | `/api/rooms/{roomNo}` | Delete room | Developed | `apiService.deleteRoom` + UI confirmation & error handling |
+| **Tenants** | `POST` | `/api/tenants` | Create tenant | Developed | `apiService.addTenant` |
+| **Tenants** | `GET` | `/api/tenants` | Get all tenants | Developed | `apiService.getTenants` |
+| **Tenants** | `GET` | `/api/tenants/{uid}` | Get single tenant | Developed | `apiService.getTenantByUid` |
+| **Tenants** | `GET` | `/api/tenants/room/{roomNo}` | Get tenants by room | Developed | `apiService.getTenantsByRoom` |
+| **Tenants** | `PUT` | `/api/tenants/{uid}` | Edit tenant | Developed | `apiService.updateTenant` |
+| **Tenants** | `DELETE` | `/api/tenants/{uid}` | Delete tenant | Developed | `apiService.deleteTenant` + UI Delete Tenant button |
+| **Admissions** | `POST` | `/api/admissions` | Create enrollment | Developed | `apiService.createAdmission` |
+| **Admissions** | `GET` | `/api/admissions` | Get all admissions | Developed | `apiService.getAdmissions` |
+| **Admissions** | `GET` | `/api/admissions/{number}` | Get single admission | Developed | `apiService.getAdmissionByNumber` |
+| **Admissions** | `PUT` | `/api/admissions/{number}/confirm` | Confirm admission (Paid) | Developed | `apiService.confirmAdmission` + UI Confirm button |
+| **Admissions** | `DELETE` | `/api/admissions/{number}` | Cancel pending admission | Developed | `apiService.cancelAdmission` + UI Cancel button |
+
+*(Modules not yet developed on the backend: Rent, Invoice, Payment, Ledger, Dashboard, Reports, Notifications, Auth — remain supported via the frontend service layer as per document notes).*
+
+---
+
+## 3. UI Updates
+
+- **[AdmissionsView.tsx](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/admissions/AdmissionsView.tsx)**:
+  - Added an **Actions** column in the Admissions Ledger.
+  - Pending admissions now feature a **Confirm** button (transitions admission from `PENDING` to `PAID` via `PUT /api/admissions/{number}/confirm`) and a **Cancel** button (cancels pending enrollment via `DELETE /api/admissions/{number}`).
+  - Confirmed admissions show a verified `PAID (Active)` badge.
+- **[TenantsView.tsx](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/tenants/TenantsView.tsx)**:
+  - Added a **Delete Tenant Record** button in the tenant profile inspector. When confirmed, it calls `DELETE /api/tenants/{uid}` and updates both the tenant list and room availability.
+- **[App.tsx](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/App.tsx)**:
+  - Wired all state updater hooks (`handleConfirmAdmission`, `handleCancelAdmission`, `handleDeleteTenant`, and enhanced `handleDeleteRoom`).
+
+---
+
+## 4. Verification Results
+
+- **Backend Tests**:
+  - Ran `./mvnw.cmd test`
+  - **Result**: `Tests run: 54, Failures: 0, Errors: 0, Skipped: 0` (BUILD SUCCESS).
+- **Frontend Build**:
+  - Ran `npm run build`
+  - **Result**: `✓ 1701 modules transformed. Built in 15.11s` (0 errors).

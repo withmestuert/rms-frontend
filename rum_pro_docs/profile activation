@@ -1,0 +1,184 @@
+# Walkthrough: Tenant Vacate Request & WhatsApp Business Quick Actions
+
+We implemented and verified the end-to-end **Tenant Vacate Request**, **WhatsApp Business Quick Actions**, and **External Form Integration** system across the backend, frontend, and external webhook services.
+
+---
+
+## 1. Overview of Implemented Capabilities
+
+### A. WhatsApp Business Quick Actions & Enrollment Welcome
+- **Immediate Trigger on Enrollment**: Immediately upon enrolling a new resident in [`AdmissionsView.tsx`](file:///C:/Users/Biju%20K/Desktop/rum/frontend/src/components/admissions/AdmissionsView.tsx), a formatted WhatsApp Business welcome package is prepared and shown in an interactive preview modal ([`WhatsAppQuickShareModal.tsx`](file:///C:/Users/Biju%20K/Desktop/rum/frontend/src/components/common/WhatsAppQuickShareModal.tsx)).
+- **Invoice & Advance Payment Receipt**: The message includes the resident's TID, room number, mobile, masked Aadhaar, advance deposit receipt number, verified status, monthly rent, and move-in date.
+- **Embedded Quick Action Links**:
+  - 💳 **Pay Rent Link**: Quick payment portal link (`/?page=rent-and-billing`) and UPI intent link.
+  - 🚪 **Vacate Request Link**: Direct link to the external form pre-filled with tenant parameters:
+    `vacate-form.html?tid=...&room=...&mobile=...&name=...&advance=...`
+- **One-Click Dispatch**: Direct "Send via WhatsApp" button (`https://wa.me/{phone}?text=...`), copy text button, and backend preview API `/api/notifications/whatsapp/welcome-preview/{tenantUid}`.
+- **Accessible from Tenants View**: A dedicated *"WhatsApp Quick Links & Vacate Notice"* button was also added to [`TenantsView.tsx`](file:///C:/Users/Biju%20K/Desktop/rum/frontend/src/components/tenants/TenantsView.tsx) to re-share quick links with any active tenant anytime.
+
+---
+
+### B. Advance Repayable Calculation Engine
+Implemented in [`VacateRequestService.java`](file:///C:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/vacate/service/VacateRequestService.java):
+1. **Notice Days**: Difference between `requestDate` and `expectedLeavingDate`.
+2. **Repayment Formula**:
+   - If $\text{Notice Days} \ge 30$: Full refund of advance paid:
+     $$\text{Repayable} = \text{advance\_paid} - (\text{maintenance} + \text{breakage})$$
+   - If $\text{Notice Days} < 30$: Pro-rated refund:
+     $$\text{Repayable} = \left(\frac{\text{advance\_paid}}{30.0} \times \text{Notice Days}\right) - (\text{maintenance} + \text{breakage})$$
+   - Guaranteed non-negative ($\ge \text{₹}0$).
+3. **Live Placeholder**: Displayed to the tenant on the external form and to the property manager during notice review.
+
+*User Specification Example Tested & Verified:*
+- Advance Paid: ₹12,000
+- Request Date: 05.09.2026 | Leaving Date: 25.09.2026 (20 days notice)
+- Formula: $(12,000 / 30) \times 20 = \text{₹}8,000.00$ refund.
+
+---
+
+### C. External Form & Webhook Integration
+1. **Universal Webhook**:
+   - [`WebhookController.java`](file:///C:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/webhook/controller/WebhookController.java): `POST /api/webhooks/vacate-request` accepts submissions from Google Forms, Microsoft Forms, Zapier, or direct HTTP POST.
+   - Automatically parses varied field names (`TID`, `Full Name`, `Room No`, `Leaving Date`, `Advance Amount`).
+2. **Setup Documentation**:
+   - Created [`EXTERNAL_FORM_SETUP_GUIDE.md`](file:///C:/Users/Biju%20K/Desktop/rum/EXTERNAL_FORM_SETUP_GUIDE.md) providing complete step-by-step instructions:
+     - Google Forms + copy-paste Google Apps Script trigger (`onFormSubmit`).
+     - Microsoft Forms + Power Automate flow guide.
+3. **Standalone Form Runner**:
+   - Created [`public/vacate-form.html`](file:///C:/Users/Biju%20K/Desktop/rum/frontend/public/vacate-form.html) accessible via `http://localhost:5173/vacate-form.html` with URL parameters for immediate testing and deployment.
+
+---
+
+### D. RMS Dashboard "Vacate Requests Desk" & Room State Sync
+- Updated [`DashboardView.tsx`](file:///C:/Users/Biju%20K/Desktop/rum/frontend/src/components/dashboard/DashboardView.tsx):
+  - Vacate Requests Desk displays active move-out notices with live status, room number, expected departure date, and calculated refund.
+  - Clicking *"Review & Action"* or *"Manage"* opens [`VacateRequestsModal.tsx`](file:///C:/Users/Biju%20K/Desktop/rum/frontend/src/components/dashboard/VacateRequestsModal.tsx).
+- **Manager Capabilities in Modal**:
+  - Review tenant identifiers & departure reasons.
+  - Adjust room inspection deductions (Maintenance ₹ and Breakage Damage ₹) with instant recalculation.
+  - *"Approve Vacate Notice"*: Transitions room to `vacate_notice` status, sets `room.vacateDate` and `vacatingResident`, scheduling the slot for upcoming admissions.
+  - *"Complete Checkout & Settlement"*: Frees the bed, updates room occupancy, and marks the tenant inactive.
+
+---
+
+## 2. Automated Test Results
+
+Ran the complete backend test suite:
+```powershell
+.\mvnw.cmd test
+```
+
+**Results**:
+```
+[INFO] Running com.rms.backend.vacate.service.VacateRequestServiceTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.132 s
+...
+[INFO] Results:
+[INFO] Tests run: 123, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+```
+
+### Verified Scenarios in [`VacateRequestServiceTest.java`](file:///C:/Users/Biju%20K/Desktop/rum/rms-backend/src/test/java/com/rms/backend/vacate/service/VacateRequestServiceTest.java):
+1. **30 Days Notice**: 100% full advance refund.
+2. **20 Days Notice**: Pro-rated refund $(12000 / 30) \times 20 = 8000.00$.
+3. **With Deductions**: Maintenance (₹500) + Breakage (₹1,000) subtracted properly ($8000 - 1500 = 6500.00$).
+4. **Lower Bound Zero**: Refund never drops below ₹0.
+5. **Tenant Resolution**: Resolves tenant by UID, Aadhaar, or mobile number.
+6. **Approval & Room State**: Room automatically receives `vacate_notice` and expected vacating date.
+
+---
+
+## 3. Frontend Production Build Validation
+
+Ran the Vite frontend build:
+```powershell
+npm run build
+```
+
+**Results**:
+```
+✓ 1703 modules transformed.
+dist/index.html                   1.39 kB
+dist/assets/index-CEzSYKsL.css   63.15 kB
+dist/assets/index-BEMD6K9D.js   539.92 kB
+✓ built in 4.36s
+```
+Zero TypeScript compilation or build errors.
+
+---
+
+## 4. UI Fixes & Room Type / Capacity Enum Chaining
+
+### A. Removed "Clean All Mock Data" Button
+- Removed the destructive button from [`SettingsView.tsx`](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/settings/SettingsView.tsx) to prevent accidental data loss.
+
+### B. Real-Time Notifications Popover
+- Updated [`AppShell.tsx`](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/layout/AppShell.tsx) header notification bell.
+- Displays real-time alerts strictly for **Vacate Requests** and **Pending Verifications** (billing & admissions updates are excluded from this element as requested).
+
+### C. Room Type & Capacity Linking with Enum
+- Defined `RoomTypeEnum` in [`types.ts`](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/types.ts):
+  - Capacity `1` $\leftrightarrow$ `Single`
+  - Capacity `2` $\leftrightarrow$ `Double`
+  - Capacity `3` $\leftrightarrow$ `Triple`
+  - Capacity `4` $\leftrightarrow$ `Four-Sharing`
+  - Capacity `5+` $\leftrightarrow$ `Dormitory`
+- In [`RoomsView.tsx`](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/rooms/RoomsView.tsx):
+  - In both **Add Room** and **Edit Room** modals, `capacity` is the primary user/admin editable driver.
+  - When the admin edits `capacity`, `roomType` immediately updates to the corresponding linked type.
+  - `roomType` is presented as a clean `<select>` dropdown option. Selecting an option in the dropdown also automatically syncs the `capacity` value.
+  - Added visual room type badges to the Room cards.
+  - Built with Vite cleanly with zero errors.
+
+---
+
+## 5. Property Delete Protection, 30-Day TTL Grace Period & Audit Snapshot Engine
+
+### A. Architectural Principle: Property as Source of Truth
+- Properties are the root entity of the system (`RMS`). Direct hard deletion from the database can cause destructive cascading loss of rooms, historical tenant leases, invoices, and ledger records.
+- Direct deletion is disabled. Soft delete with strict dual-factor authorization and an immutable audit manifest is now enforced.
+
+### B. Privileged Authorization Safeguards
+- **Exact Property Name Confirmation**: To decommission a property, the administrator must type the exact case-insensitive property name (preventing accidental clicks).
+- **Admin Authorization PIN**: Requires prototype security PIN `9999` (validated server-side).
+- **Mandatory Audit Reason**: Decommissioning requires a documented administrative justification.
+
+### C. Pre-Deletion Audit Snapshot Manifest
+- Before marking the property as decommissioned, the system traverses all related entities:
+  - Rooms (room numbers, floor, type, rent, occupancy)
+  - Active & past residents / tenants (TID, name, phone, balance)
+  - Admissions & billing totals
+- The complete state is serialized and persisted into a dedicated [`PropertyArchiveSnapshot`](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/properties/entity/PropertyArchiveSnapshot.java) entity with timestamps and responsible admin identity.
+- Even if the property is purged after TTL, the audit manifest remains indefinitely accessible for compliance.
+
+### D. 30-Day TTL Grace Period & Self-Purging Background Scheduler
+- When soft-deleted, `isDeleted = true`, `deletedAt = Instant.now()`, and `ttlExpiresAt = Instant.now().plus(30, DAYS)` are set.
+- Active queries (`/api/properties`) automatically exclude decommissioned properties from daily operations.
+- **Background Scheduler** ([`PropertyTtlScheduler.java`](file:///c:/Users/Biju%20K/Desktop/rum/rms-backend/src/main/java/com/rms/backend/properties/service/PropertyTtlScheduler.java)):
+  - Runs automatically every night at 2:00 AM (`0 0 2 * * *`).
+  - Scans for properties where `ttlExpiresAt < now()`.
+  - Verifies an audit snapshot exists before performing the final hard purge.
+
+### E. UI Management in Settings View
+- **Sub-tabs**: Added "Active Properties" vs "Decommission Queue / TTL (30d)".
+- **Decommission Security Modal** ([`PropertySoftDeleteModal.tsx`](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/settings/PropertySoftDeleteModal.tsx)): Prompting for exact name, admin PIN `9999`, decommission reason, and 30-day countdown warning.
+- **Decommission Queue Cards**:
+  - Shows property details with countdown badge (`X days left`).
+  - Urgent pulse alert when $\le 5$ days remain.
+  - **View Manifest Button**: Opens [`PropertySnapshotModal.tsx`](file:///c:/Users/Biju%20K/Desktop/rum/frontend/src/components/settings/PropertySnapshotModal.tsx) to inspect the JSON audit snapshot or copy it to clipboard.
+  - **Restore Property Button**: Instantly restores the property and rooms back into active service at any point during the 30 days.
+
+---
+
+## 6. Activated Header User Profile & Log Out
+
+### Implemented Features
+- **Header Profile Button**: The top-right header avatar is now an interactive button displaying the logged-in user's initials, full name, role, and active online status indicator with a toggle arrow.
+- **Profile Popover**:
+  - **Identity Header**: Displays the user's name, handle (`@username`), and role badge (`PROPERTY MANAGER` / `ADMIN`).
+  - **User Details**: Contact email, phone number, and currently assigned property (`Property: Seyon Stays`).
+  - **Session State**: Live `Active • Authenticated` badge with pulsing indicator.
+  - **Account Navigation**: Direct link to `Settings & System`.
+  - **Log Out Option**: Styled action button with confirmation dialog that ends the session and navigates back to the dashboard.
+- **Accessible & Dismissable**: Closes automatically when clicking outside, navigating to a new route, or pressing the `Escape` key.
+
